@@ -20,8 +20,7 @@ import {
   FilePdfOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
-  RobotOutlined,
-  SwapOutlined
+  RobotOutlined
 } from '@ant-design/icons';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { OptimizationResult, DesignSteel, ModuleSteel, CuttingPlan, SmartOptimizationResult, OptimizationMode } from '../types';

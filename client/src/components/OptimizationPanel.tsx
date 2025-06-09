@@ -20,8 +20,7 @@ import {
 import { 
   PlayCircleOutlined, 
   StopOutlined, 
-  RobotOutlined,
-  SettingOutlined
+  RobotOutlined
 } from '@ant-design/icons';
 import { 
   DesignSteel, 

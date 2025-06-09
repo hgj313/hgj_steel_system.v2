@@ -16,7 +16,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "CI=false react-scripts build",
+    "build": "cross-env CI=false react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
@@ -43,6 +43,7 @@
   },
   "proxy": "http://localhost:5000",
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "react-scripts": "^5.0.1"
   }
 }
