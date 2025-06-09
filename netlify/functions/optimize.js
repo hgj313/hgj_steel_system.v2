@@ -110,32 +110,43 @@ class SteelOptimizer {
 
   optimize() {
     const groups = this.groupByCrossSection();
-    const results = {};
+    const solutions = {};
     let totalModuleUsed = 0;
     let totalWaste = 0;
+    let totalMaterial = 0;
 
     for (const [crossSection, steels] of Object.entries(groups)) {
       if (Date.now() - this.startTime > this.timeLimit) break;
       
       const groupResult = this.optimizeGroup(steels, crossSection);
-      results[crossSection] = groupResult;
+      solutions[crossSection] = groupResult;
       totalModuleUsed += groupResult.totalModuleUsed;
       totalWaste += groupResult.totalWaste;
+      
+      // 计算总材料使用量（模数钢材的总长度）
+      groupResult.cuttingPlans?.forEach(plan => {
+        if (plan.sourceType === 'module') {
+          totalMaterial += plan.sourceLength || plan.moduleLength || 0;
+        }
+      });
     }
 
-    const totalModuleLength = totalModuleUsed * (this.moduleSteels[0]?.length || 12000);
-    const lossRate = totalModuleLength > 0 ? (totalWaste / totalModuleLength) * 100 : 0;
+    // 如果没有切割计划，基于模数钢材数量估算总材料
+    if (totalMaterial === 0) {
+      const avgModuleLength = this.moduleSteels.reduce((sum, m) => sum + m.length, 0) / this.moduleSteels.length || 12000;
+      totalMaterial = totalModuleUsed * avgModuleLength;
+    }
+
+    const totalLossRate = totalMaterial > 0 ? (totalWaste / totalMaterial) * 100 : 0;
+    const executionTime = Date.now() - this.startTime;
 
     return {
-      success: true,
-      results: results,
-      summary: {
-        totalModuleUsed,
-        totalWaste,
-        totalModuleLength,
-        lossRate: parseFloat(lossRate.toFixed(2)),
-        calculation_time: Date.now() - this.startTime
-      }
+      solutions,
+      totalLossRate: parseFloat(totalLossRate.toFixed(2)),
+      totalModuleUsed,
+      totalWaste,
+      totalMaterial,
+      executionTime
     };
   }
 
@@ -166,13 +177,13 @@ class SteelOptimizer {
       const remainderCombination = this.findBestRemainderCombination(longestDemand.length, crossSection);
 
       if (remainderCombination) {
-        this.cutFromRemainders(remainderCombination, demands, crossSection);
+        this.cutFromRemainders(remainderCombination, demands, crossSection, solution);
       } else {
         const bestModule = this.selectBestModule(demands);
         if (!bestModule) break;
 
         const moduleId = this.generateModuleId(crossSection);
-        this.cutModule(bestModule, demands, crossSection, moduleId);
+        this.cutModule(bestModule, demands, crossSection, moduleId, solution);
         solution.totalModuleUsed++;
       }
     }
@@ -180,7 +191,7 @@ class SteelOptimizer {
     return solution;
   }
 
-  cutFromRemainders(remainderCombination, demands, crossSection) {
+  cutFromRemainders(remainderCombination, demands, crossSection, solution) {
     let availableLength = remainderCombination.totalLength;
     const cuts = [];
     const sourceChain = this.buildSourceChain(remainderCombination.remainders);
@@ -196,16 +207,29 @@ class SteelOptimizer {
 
       if (cutQuantity > 0) {
         cuts.push({
-          id: demand.id,
+          designId: demand.id,
           length: demand.length,
-          quantity: cutQuantity,
-          specification: demand.specification
+          quantity: cutQuantity
         });
 
         demand.remaining -= cutQuantity;
         availableLength -= demand.length * cutQuantity;
       }
     }
+
+    const wasteLength = availableLength < this.wasteThreshold ? availableLength : 0;
+    solution.totalWaste += wasteLength;
+
+    // 创建切割计划
+    const cuttingPlan = {
+      sourceType: 'remainder',
+      sourceId: remainderCombination.remainders.map(r => r.id).join('+'),
+      sourceDescription: `余料组合 ${remainderCombination.remainders.map(r => r.id).join('+')}`,
+      sourceLength: remainderCombination.totalLength,
+      cuts: cuts,
+      waste: wasteLength,
+      newRemainders: []
+    };
 
     if (availableLength >= this.wasteThreshold) {
       const newRemainder = {
@@ -215,7 +239,22 @@ class SteelOptimizer {
         generation: Math.max(...remainderCombination.remainders.map(r => r.generation || 0)) + 1
       };
       this.addRemainderToPool(newRemainder, crossSection);
+      cuttingPlan.newRemainders.push(newRemainder);
     }
+
+    solution.cuttingPlans.push(cuttingPlan);
+    
+    // 添加详情信息
+    cuts.forEach(cut => {
+      solution.details.push({
+        sourceType: 'remainder',
+        sourceId: cuttingPlan.sourceId,
+        sourceLength: remainderCombination.totalLength,
+        designId: cut.designId,
+        length: cut.length,
+        quantity: cut.quantity
+      });
+    });
 
     this.removeRemaindersFromPool(remainderCombination.indices, crossSection);
   }
@@ -243,7 +282,7 @@ class SteelOptimizer {
     return modules[0];
   }
 
-  cutModule(module, demands, crossSection, moduleId) {
+  cutModule(module, demands, crossSection, moduleId, solution) {
     let availableLength = module.length;
     const cuts = [];
 
@@ -258,16 +297,31 @@ class SteelOptimizer {
 
       if (cutQuantity > 0) {
         cuts.push({
-          id: demand.id,
+          designId: demand.id,
           length: demand.length,
-          quantity: cutQuantity,
-          specification: demand.specification
+          quantity: cutQuantity
         });
 
         demand.remaining -= cutQuantity;
         availableLength -= demand.length * cutQuantity;
       }
     }
+
+    const wasteLength = availableLength < this.wasteThreshold ? availableLength : 0;
+    solution.totalWaste += wasteLength;
+
+    // 创建切割计划
+    const cuttingPlan = {
+      sourceType: 'module',
+      sourceId: moduleId,
+      sourceDescription: `${module.specification || '模数钢材'} ${module.length}mm`,
+      sourceLength: module.length,
+      moduleType: module.specification || '标准模数',
+      moduleLength: module.length,
+      cuts: cuts,
+      waste: wasteLength,
+      newRemainders: []
+    };
 
     if (availableLength >= this.wasteThreshold) {
       const remainder = {
@@ -278,7 +332,24 @@ class SteelOptimizer {
         generation: 1
       };
       this.addRemainderToPool(remainder, crossSection);
+      cuttingPlan.newRemainders.push(remainder);
     }
+
+    solution.cuttingPlans.push(cuttingPlan);
+    
+    // 添加详情信息
+    cuts.forEach(cut => {
+      solution.details.push({
+        sourceType: 'module',
+        sourceId: moduleId,
+        sourceLength: module.length,
+        moduleType: module.specification || '标准模数',
+        moduleLength: module.length,
+        designId: cut.designId,
+        length: cut.length,
+        quantity: cut.quantity
+      });
+    });
   }
 }
 

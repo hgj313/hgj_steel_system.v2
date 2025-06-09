@@ -126,6 +126,10 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
 
   // 准备图表数据
   const prepareChartData = () => {
+    if (!currentResult || !currentResult.solutions) {
+      return { lossRateData: [], pieData: [] };
+    }
+    
     const crossSections = Object.keys(currentResult.solutions);
     const lossRateData = crossSections.map(crossSection => {
       const solution = currentResult.solutions[crossSection];
@@ -156,6 +160,14 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
 
   // 准备模数钢材使用统计数据
   const prepareModuleUsageStats = () => {
+    if (!currentResult || !currentResult.solutions) {
+      return { 
+        sortedStats: [], 
+        crossSectionTotals: {}, 
+        grandTotal: { count: 0, totalLength: 0 } 
+      };
+    }
+    
     const moduleUsageStats: Record<string, {
       moduleType: string;
       crossSection: number;
@@ -210,9 +222,17 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
     return { sortedStats, crossSectionTotals, grandTotal };
   };
 
-  const { lossRateData, pieData } = prepareChartData();
-  const { sortedStats, crossSectionTotals, grandTotal } = prepareModuleUsageStats();
-  const validation = validateRequirements();
+  // 安全地调用数据准备函数
+  const chartData = currentResult ? prepareChartData() : { lossRateData: [], pieData: [] };
+  const moduleUsageData = currentResult ? prepareModuleUsageStats() : { 
+    sortedStats: [], 
+    crossSectionTotals: {}, 
+    grandTotal: { count: 0, totalLength: 0 } 
+  };
+  
+  const { lossRateData, pieData } = chartData;
+  const { sortedStats, crossSectionTotals, grandTotal } = moduleUsageData;
+  const validation = currentResult ? validateRequirements() : [];
   const allSatisfied = validation.every(v => v.satisfied);
 
   // 渲染智能优化结果概览
