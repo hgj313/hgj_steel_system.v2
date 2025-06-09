@@ -44,7 +44,18 @@ const DesignSteelManager: React.FC<Props> = ({ designSteels, onChange }) => {
   const handleUpload = async (file: File) => {
     setUploading(true);
     try {
-      const response = await uploadDesignSteels(file);
+      // 读取文件内容
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      const base64 = btoa(Array.from(uint8Array, byte => String.fromCharCode(byte)).join(''));
+      
+      // 发送文件数据
+      const response = await uploadDesignSteels({
+        filename: file.name,
+        data: base64,
+        type: file.type
+      } as any);
+      
       const steelsWithIds = generateDisplayIds(response.designSteels);
       onChange(steelsWithIds);
       message.success(`成功上传 ${steelsWithIds.length} 条设计钢材数据`);

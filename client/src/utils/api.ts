@@ -18,17 +18,29 @@ const api = axios.create({
 });
 
 // 上传设计钢材Excel文件
-export const uploadDesignSteels = async (file: File): Promise<UploadResponse> => {
-  const formData = new FormData();
-  formData.append('file', file);
-  
-  const response = await api.post('/upload-design-steels', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
-  
-  return response.data;
+export const uploadDesignSteels = async (fileData: { filename: string; data: string; type: string } | File): Promise<UploadResponse> => {
+  if (fileData instanceof File) {
+    // 兼容原来的File对象（本地开发）
+    const formData = new FormData();
+    formData.append('file', fileData);
+    
+    const response = await api.post('/upload-design-steels', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    
+    return response.data;
+  } else {
+    // 新的JSON格式（Netlify部署）
+    const response = await api.post('/upload-design-steels', fileData, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    return response.data;
+  }
 };
 
 // 执行优化计算

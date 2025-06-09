@@ -24,46 +24,53 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // 获取上传的文件数据
+    // 获取请求数据
     const contentType = event.headers['content-type'] || '';
     
-    if (!contentType.includes('multipart/form-data')) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: '请上传Excel文件' })
-      };
-    }
+    let fileBuffer;
+    let filename = 'uploaded_file.xlsx';
 
-    // 解析base64编码的body
-    const body = event.isBase64Encoded ? 
-      Buffer.from(event.body, 'base64') : 
-      Buffer.from(event.body);
+    if (contentType.includes('application/json')) {
+      // JSON格式的文件数据
+      const body = JSON.parse(event.body);
+      if (!body.data) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: '没有文件数据' })
+        };
+      }
+      
+      filename = body.filename || filename;
+      fileBuffer = Buffer.from(body.data, 'base64');
+      
+    } else if (contentType.includes('multipart/form-data')) {
+      // 兼容multipart格式（本地开发）
+      const body = event.isBase64Encoded ? 
+        Buffer.from(event.body, 'base64') : 
+        Buffer.from(event.body);
 
-    // 简单的multipart解析（查找文件内容）
-    const boundary = contentType.split('boundary=')[1];
-    if (!boundary) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: '无效的文件格式' })
-      };
-    }
+      // 简单的multipart解析（查找文件内容）
+      const boundary = contentType.split('boundary=')[1];
+      if (!boundary) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: '无效的文件格式' })
+        };
+      }
 
-    // 分割multipart数据
-    const parts = body.toString('binary').split('--' + boundary);
-    let fileBuffer = null;
-
-    for (const part of parts) {
-      if (part.includes('Content-Type: application/') && 
-          (part.includes('.xlsx') || part.includes('.xls') || part.includes('spreadsheet'))) {
-        // 找到文件部分，提取二进制数据
-        const lines = part.split('\r\n');
-        const dataStartIndex = lines.findIndex(line => line.trim() === '') + 1;
-        if (dataStartIndex > 0 && dataStartIndex < lines.length) {
-          const fileData = lines.slice(dataStartIndex).join('\r\n');
-          fileBuffer = Buffer.from(fileData, 'binary');
-          break;
+      const parts = body.toString('binary').split('--' + boundary);
+      for (const part of parts) {
+        if (part.includes('Content-Type: application/') && 
+            (part.includes('.xlsx') || part.includes('.xls') || part.includes('spreadsheet'))) {
+          const lines = part.split('\r\n');
+          const dataStartIndex = lines.findIndex(line => line.trim() === '') + 1;
+          if (dataStartIndex > 0 && dataStartIndex < lines.length) {
+            const fileData = lines.slice(dataStartIndex).join('\r\n');
+            fileBuffer = Buffer.from(fileData, 'binary');
+            break;
+          }
         }
       }
     }
