@@ -1,0 +1,37 @@
+{
+  "name": "steel-procurement-system",
+  "version": "1.0.0",
+  "description": "钢材采购损耗率估算系统",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "nodemon server/index.js",
+    "client": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "build:netlify": "npm run install-all && npm run build",
+    "install-all": "npm install && cd client && npm install",
+    "dev": "netlify dev"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "form-data": "^4.0.3",
+    "fs-extra": "^11.1.1",
+    "multer": "^1.4.5-lts.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "netlify-cli": "^17.0.0",
+    "nodemon": "^3.0.1"
+  },
+  "keywords": [
+    "steel",
+    "procurement",
+    "optimization",
+    "cutting-stock"
+  ],
+  "author": "钢材采购系统",
+  "license": "MIT"
+}
