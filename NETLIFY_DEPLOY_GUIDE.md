@@ -40,6 +40,8 @@ cd netlify/functions && npm install && cd ../..
 
 #### 1. 推送到Git仓库
 
+##### 方法A: 使用SSH推送（推荐）
+
 ```bash
 # 初始化Git仓库（如果还没有）
 git init
@@ -50,10 +52,56 @@ git add .
 # 提交更改
 git commit -m "Prepare for Netlify deployment"
 
-# 推送到GitHub/GitLab
-git remote add origin <your-repository-url>
-git push -u origin main
+# 添加SSH远程仓库
+git remote add origin git@github.com:username/repository.git
+
+# SSH推送
+git push -u origin master
 ```
+
+**SSH推送问题解决**:
+
+1. **使用专用脚本**（最简单）:
+```powershell
+# 运行SSH推送脚本
+.\ssh_push.ps1
+```
+
+2. **手动SSH推送**:
+```bash
+# 确保SSH密钥已添加到GitHub
+ssh -T git@github.com
+
+# 推送代码（需要输入SSH密钥密码）
+git push origin master
+```
+
+3. **使用SSH Agent缓存密钥**:
+```bash
+# Windows (Git Bash)
+eval $(ssh-agent -s)
+ssh-add ~/.ssh/id_ed25519
+
+# 推送（不需要再输入密码）
+git push origin master
+```
+
+##### 方法B: 使用HTTPS推送
+
+```bash
+# 添加HTTPS远程仓库
+git remote add origin https://github.com/username/repository.git
+
+# HTTPS推送（需要GitHub Token）
+git push -u origin master
+```
+
+**获取GitHub Personal Access Token**:
+1. 访问: https://github.com/settings/tokens
+2. 点击 "Generate new token (classic)"
+3. 选择权限: `repo`, `workflow`
+4. 复制生成的token
+5. 推送时使用token作为密码
 
 #### 2. 连接Netlify
 
