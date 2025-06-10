@@ -163,7 +163,22 @@ const OptimizationPanel: React.FC<Props> = ({
       // 显示策略选择对话框
       setIsStrategyModalVisible(true);
     } catch (error: any) {
-      const errorMessage = error.response?.data?.error || error.message || '预估失败';
+      console.error('智能优化预估错误详情:', error);
+      
+      let errorMessage = '预估失败';
+      if (error.response) {
+        // 服务器响应了错误状态码
+        errorMessage = `服务器错误(${error.response.status}): ${error.response.data?.error || error.response.statusText}`;
+        console.error('服务器响应:', error.response.data);
+      } else if (error.request) {
+        // 请求发出但没有收到响应
+        errorMessage = '网络连接失败，请检查网络或稍后重试';
+        console.error('网络请求失败:', error.request);
+      } else {
+        // 其他错误
+        errorMessage = error.message || '未知错误';
+      }
+      
       onOptimizationError(errorMessage);
     }
   };

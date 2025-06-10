@@ -91,8 +91,20 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
       downloadFile(response);
       message.success('PDF文件导出成功');
     } catch (error: any) {
-      console.error('PDF导出错误:', error);
-      message.error(`PDF导出失败: ${error.response?.data?.error || error.message}`);
+      console.error('PDF导出错误详情:', error);
+      
+      let errorMessage = 'PDF导出失败';
+      if (error.response) {
+        errorMessage = `PDF导出失败(${error.response.status}): ${error.response.data?.error || error.response.statusText}`;
+        console.error('PDF导出服务器响应:', error.response.data);
+      } else if (error.request) {
+        errorMessage = 'PDF导出网络连接失败，请检查网络或稍后重试';
+        console.error('PDF导出网络请求失败:', error.request);
+      } else {
+        errorMessage = `PDF导出失败: ${error.message}`;
+      }
+      
+      message.error(errorMessage);
     } finally {
       setExportingPDF(false);
     }
