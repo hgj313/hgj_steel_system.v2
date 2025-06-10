@@ -138,6 +138,18 @@ export interface ApiResponse<T> {
 // 文件上传响应类型
 export interface UploadResponse {
   designSteels: DesignSteel[];
+  debugInfo?: {
+    原始行数: number;
+    有效数据: number;
+    截面面积统计: {
+      有截面面积: number;
+      无截面面积: number;
+      最大截面面积: number;
+      最小截面面积: number;
+    };
+    列名信息: string[];
+    示例数据: any[];
+  };
 }
 
 // 导出响应类型
