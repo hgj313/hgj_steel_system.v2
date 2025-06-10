@@ -44,10 +44,24 @@ const DesignSteelManager: React.FC<Props> = ({ designSteels, onChange }) => {
   const handleUpload = async (file: File) => {
     setUploading(true);
     try {
+      console.log('=== 前端文件上传开始 ===');
+      console.log('文件信息:', {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        lastModified: file.lastModified
+      });
+      
       // 读取文件内容
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
       const base64 = btoa(Array.from(uint8Array, byte => String.fromCharCode(byte)).join(''));
+      
+      console.log('文件转换完成:', {
+        原始大小: file.size,
+        Base64大小: base64.length,
+        压缩比: (base64.length / file.size).toFixed(2)
+      });
       
       // 发送文件数据
       const response = await uploadDesignSteels({
@@ -56,11 +70,90 @@ const DesignSteelManager: React.FC<Props> = ({ designSteels, onChange }) => {
         type: file.type
       } as any);
       
+      console.log('服务器响应:', response);
+      
+      // 显示调试信息
+      if (response.debugInfo) {
+        console.log('=== 调试信息 ===');
+        console.log('原始行数:', response.debugInfo.原始行数);
+        console.log('有效数据:', response.debugInfo.有效数据);
+        console.log('列名信息:', response.debugInfo.列名信息);
+        console.log('截面面积统计:', response.debugInfo.截面面积统计);
+        console.log('示例数据:', response.debugInfo.示例数据);
+        
+        // 如果有截面面积问题，显示警告
+        if (response.debugInfo.截面面积统计?.无截面面积 > 0) {
+          message.warning(
+            `注意：${response.debugInfo.截面面积统计.无截面面积} 条数据的截面面积为0，请检查Excel文件的列名是否正确！`,
+            6
+          );
+          
+          // 显示详细的调试信息
+          Modal.info({
+            title: '数据解析调试信息',
+            width: 600,
+            content: (
+              <div>
+                <h4>Excel文件解析结果：</h4>
+                <p><strong>检测到的列名：</strong> {response.debugInfo.列名信息?.join(', ') || '无'}</p>
+                <p><strong>原始数据行数：</strong> {response.debugInfo.原始行数}</p>
+                <p><strong>有效数据行数：</strong> {response.debugInfo.有效数据}</p>
+                <h4>截面面积统计：</h4>
+                <p><strong>有截面面积：</strong> {response.debugInfo.截面面积统计?.有截面面积} 条</p>
+                <p><strong>无截面面积：</strong> {response.debugInfo.截面面积统计?.无截面面积} 条</p>
+                {response.debugInfo.示例数据?.length > 0 && (
+                  <div>
+                    <h4>示例数据：</h4>
+                    <pre style={{ fontSize: '12px', overflow: 'auto' }}>
+                      {JSON.stringify(response.debugInfo.示例数据, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                <div style={{ marginTop: 16, padding: 8, backgroundColor: '#f6ffed', border: '1px solid #b7eb8f' }}>
+                  <strong>建议：</strong>
+                  <br />1. 确保Excel文件包含"截面面积"、"CrossSection"或"crossSection"列
+                  <br />2. 检查数据格式是否为数字
+                  <br />3. 确认列名没有多余的空格
+                </div>
+              </div>
+            )
+          });
+        }
+      }
+      
       const steelsWithIds = generateDisplayIds(response.designSteels);
       onChange(steelsWithIds);
       message.success(`成功上传 ${steelsWithIds.length} 条设计钢材数据`);
+      console.log('=== 前端文件上传完成 ===');
     } catch (error: any) {
-      message.error(`上传失败: ${error.response?.data?.error || error.message}`);
+      console.error('=== 前端上传错误 ===');
+      console.error('错误详情:', error);
+      console.error('错误响应:', error.response?.data);
+      
+      const errorMsg = error.response?.data?.error || error.message;
+      message.error(`上传失败: ${errorMsg}`);
+      
+      // 显示详细错误信息
+      if (error.response?.data?.debugInfo) {
+        Modal.error({
+          title: '上传错误详情',
+          width: 600,
+          content: (
+            <div>
+              <p><strong>错误类型：</strong> {error.response.data.debugInfo.errorType}</p>
+              <p><strong>错误信息：</strong> {error.response.data.debugInfo.errorMessage}</p>
+              {error.response.data.debugInfo.errorStack && (
+                <div>
+                  <h4>错误堆栈：</h4>
+                  <pre style={{ fontSize: '10px', overflow: 'auto', maxHeight: '200px' }}>
+                    {error.response.data.debugInfo.errorStack}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )
+        });
+      }
     } finally {
       setUploading(false);
     }

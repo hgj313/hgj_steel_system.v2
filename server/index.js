@@ -732,34 +732,126 @@ let globalSmartOptimizer = null;
 // 上传Excel文件解析设计钢材数据
 app.post('/api/upload-design-steels', upload.single('file'), (req, res) => {
   try {
+    console.log('=== Excel文件上传开始 ===');
+    
     if (!req.file) {
+      console.log('错误：没有收到文件');
       return res.status(400).json({ error: '请选择文件' });
     }
 
+    console.log('文件信息:', {
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      size: req.file.size,
+      mimetype: req.file.mimetype
+    });
+
     const filePath = req.file.path;
+    console.log('文件路径:', filePath);
+
     const workbook = XLSX.readFile(filePath);
+    console.log('Excel工作簿信息:', {
+      sheetNames: workbook.SheetNames,
+      totalSheets: workbook.SheetNames.length
+    });
+
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
+    console.log('使用工作表:', sheetName);
+
+    // 获取工作表的范围
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    console.log('工作表范围:', {
+      start: `${XLSX.utils.encode_col(range.s.c)}${range.s.r + 1}`,
+      end: `${XLSX.utils.encode_col(range.e.c)}${range.e.r + 1}`,
+      rows: range.e.r - range.s.r + 1,
+      cols: range.e.c - range.s.c + 1
+    });
+
+    // 读取原始数据
     const data = XLSX.utils.sheet_to_json(worksheet);
+    console.log('原始数据行数:', data.length);
+    
+    if (data.length > 0) {
+      console.log('第一行数据:', data[0]);
+      console.log('数据列名:', Object.keys(data[0]));
+    }
 
     // 转换数据格式 - 支持多种列名格式
-    const designSteels = data.map((row, index) => ({
-      id: `design_${Date.now()}_${index}`,
-      length: parseFloat(row['长度'] || row['Length'] || row.length || 0),
-      quantity: parseInt(row['数量'] || row['Quantity'] || row.quantity || 0),
-      crossSection: parseFloat(row['截面面积'] || row['CrossSection'] || row.crossSection || 0),
-      specification: row['规格'] || row['Specification'] || row.specification || '',
-      material: row['材质'] || row['Material'] || row.material || '',
-      note: row['备注'] || row['Note'] || row.note || ''
-    })).filter(steel => steel.length > 0 && steel.quantity > 0);
+    const designSteels = data.map((row, index) => {
+      const steel = {
+        id: `design_${Date.now()}_${index}`,
+        length: parseFloat(row['长度'] || row['Length'] || row.length || 0),
+        quantity: parseInt(row['数量'] || row['Quantity'] || row.quantity || 0),
+        crossSection: parseFloat(row['截面面积'] || row['CrossSection'] || row.crossSection || 0),
+        specification: row['规格'] || row['Specification'] || row.specification || '',
+        material: row['材质'] || row['Material'] || row.material || '',
+        note: row['备注'] || row['Note'] || row.note || ''
+      };
+
+      // 调试每一行的数据解析
+      if (index < 3) { // 只显示前3行的详细信息
+        console.log(`第${index + 1}行解析结果:`, {
+          原始数据: row,
+          解析结果: steel,
+          长度来源: row['长度'] ? '长度' : (row['Length'] ? 'Length' : (row.length ? 'length' : '未找到')),
+          数量来源: row['数量'] ? '数量' : (row['Quantity'] ? 'Quantity' : (row.quantity ? 'quantity' : '未找到')),
+          截面面积来源: row['截面面积'] ? '截面面积' : (row['CrossSection'] ? 'CrossSection' : (row.crossSection ? 'crossSection' : '未找到'))
+        });
+      }
+
+      return steel;
+    }).filter(steel => {
+      const isValid = steel.length > 0 && steel.quantity > 0;
+      if (!isValid) {
+        console.log('过滤掉无效数据:', steel);
+      }
+      return isValid;
+    });
+
+    console.log('最终有效数据:', {
+      总行数: data.length,
+      有效数据: designSteels.length,
+      过滤掉: data.length - designSteels.length
+    });
+
+    // 统计截面面积情况
+    const crossSectionStats = {
+      有截面面积: designSteels.filter(s => s.crossSection > 0).length,
+      无截面面积: designSteels.filter(s => s.crossSection === 0).length,
+      最大截面面积: designSteels.length > 0 ? Math.max(...designSteels.map(s => s.crossSection)) : 0,
+      最小截面面积: designSteels.filter(s => s.crossSection > 0).length > 0 ? Math.min(...designSteels.filter(s => s.crossSection > 0).map(s => s.crossSection)) : 0
+    };
+    console.log('截面面积统计:', crossSectionStats);
 
     // 清理临时文件
     fs.removeSync(filePath);
+    console.log('临时文件已清理');
 
-    res.json({ designSteels });
+    console.log('=== Excel文件上传完成 ===');
+
+    res.json({ 
+      designSteels,
+      debugInfo: {
+        原始行数: data.length,
+        有效数据: designSteels.length,
+        截面面积统计: crossSectionStats,
+        列名信息: data.length > 0 ? Object.keys(data[0]) : [],
+        示例数据: data.slice(0, 2)
+      }
+    });
   } catch (error) {
-    console.error('文件解析错误:', error);
-    res.status(500).json({ error: '文件解析失败: ' + error.message });
+    console.error('=== Excel文件解析错误 ===');
+    console.error('错误详情:', error);
+    console.error('错误堆栈:', error.stack);
+    res.status(500).json({ 
+      error: '文件解析失败: ' + error.message,
+      debugInfo: {
+        errorType: error.name,
+        errorMessage: error.message,
+        errorStack: error.stack
+      }
+    });
   }
 });
 
