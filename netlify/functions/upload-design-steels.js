@@ -181,20 +181,13 @@ exports.handler = async (event, context) => {
     };
 
   } catch (error) {
-    console.error('=== Netlify Functions: 文件处理错误 ===');
-    console.error('错误详情:', error);
-    console.error('错误堆栈:', error.stack);
+    console.error('文件处理错误:', error);
     return {
       statusCode: 500,
       headers,
       body: JSON.stringify({ 
         error: '文件处理失败',
-        details: error.message,
-        debugInfo: {
-          errorType: error.name,
-          errorMessage: error.message,
-          errorStack: error.stack
-        }
+        details: error.message 
       })
     };
   }
