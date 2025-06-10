@@ -182,6 +182,53 @@ const OptimizationPanel: React.FC<Props> = ({
         customTimeLimit: customTimeLimit
       };
 
+      // 在Netlify环境下，直接使用候选规格进行传统优化
+      if (estimationData && estimationData.candidateSpecs && estimationData.candidateSpecs.length > 0) {
+        message.info('正在使用智能预选的模数规格进行优化...');
+        
+        // 构建智能选择的模数钢材
+        const smartModuleSteels = estimationData.candidateSpecs.slice(0, 2).map((spec: any) => ({
+          id: `SMART_${spec.length}`,
+          name: `智能-${spec.name}`,
+          length: spec.length
+        }));
+
+        // 使用传统优化算法
+        const result = await optimizeSteel(designSteels, smartModuleSteels, {
+          wasteThreshold: params.wasteThreshold,
+          expectedLossRate: params.expectedLossRate,
+          timeLimit: params.timeLimit * 1000
+        });
+
+        // 构建智能优化结果格式
+        const smartResult: SmartOptimizationResult = {
+          topCombinations: [{
+            specs: smartModuleSteels.map((m: any) => m.length),
+            lossRate: result.totalLossRate,
+            totalModuleUsed: result.totalModuleUsed,
+            totalWaste: result.totalWaste,
+            executionTime: result.executionTime
+          }],
+          bestCombination: {
+            specs: smartModuleSteels.map((m: any) => m.length),
+            lossRate: result.totalLossRate,
+            totalModuleUsed: result.totalModuleUsed,
+            totalWaste: result.totalWaste,
+            executionTime: result.executionTime,
+            result: result
+          },
+          totalTestedCombinations: 1,
+          totalExecutionTime: result.executionTime,
+          isCancelled: false,
+          candidateSpecs: estimationData.candidateSpecs
+        };
+
+        onSmartOptimizationComplete(smartResult);
+        message.success('智能优化完成！');
+        return;
+      }
+
+      // 传统的智能优化流程（本地服务器）
       await smartOptimizeStart(designSteels, params);
       message.info('智能优化已启动，正在计算中...');
     } catch (error: any) {
