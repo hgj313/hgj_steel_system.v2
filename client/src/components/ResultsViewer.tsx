@@ -71,9 +71,10 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
     setExporting(true);
     try {
       const response = await exportToExcel(currentResult, moduleSteels);
-      downloadFile(response.downloadUrl);
+      downloadFile(response);
       message.success('Excel文件导出成功');
     } catch (error: any) {
+      console.error('Excel导出错误:', error);
       message.error(`导出失败: ${error.response?.data?.error || error.message}`);
     } finally {
       setExporting(false);
@@ -87,9 +88,10 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
     setExportingPDF(true);
     try {
       const response = await exportToPDF(currentResult, designSteels, moduleSteels);
-      downloadFile(response.downloadUrl);
+      downloadFile(response);
       message.success('PDF文件导出成功');
     } catch (error: any) {
+      console.error('PDF导出错误:', error);
       message.error(`PDF导出失败: ${error.response?.data?.error || error.message}`);
     } finally {
       setExportingPDF(false);
@@ -141,9 +143,12 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
     const crossSections = Object.keys(currentResult.solutions);
     const lossRateData = crossSections.map(crossSection => {
       const solution = currentResult.solutions[crossSection];
-      const totalMaterial = solution.details.reduce((sum, detail) => {
-        return sum + (detail.sourceType === 'module' ? detail.sourceLength : 0);
-      }, 0);
+      
+      // 计算总材料使用量（只计算模数钢材）
+      const totalMaterial = solution.cuttingPlans?.reduce((sum, plan) => {
+        return sum + (plan.sourceType === 'module' ? plan.sourceLength : 0);
+      }, 0) || 0;
+      
       const lossRate = totalMaterial > 0 ? (solution.totalWaste / totalMaterial) * 100 : 0;
       
       return {
@@ -185,20 +190,23 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
     }> = {};
 
     Object.entries(currentResult.solutions).forEach(([crossSection, solution]) => {
-      solution.details.forEach(detail => {
+      // 从设计钢材中获取截面面积
+      const crossSectionValue = parseInt(crossSection);
+      
+      solution.details?.forEach(detail => {
         if (detail.sourceType === 'module' && detail.moduleType) {
           const key = `${detail.moduleType}_${crossSection}`;
           if (!moduleUsageStats[key]) {
             moduleUsageStats[key] = {
               moduleType: detail.moduleType,
-              crossSection: parseInt(crossSection),
+              crossSection: crossSectionValue,
               length: detail.moduleLength || detail.sourceLength,
               count: 0,
               totalLength: 0
             };
           }
-          moduleUsageStats[key].count += 1;
-          moduleUsageStats[key].totalLength += detail.moduleLength || detail.sourceLength;
+          moduleUsageStats[key].count += detail.quantity;
+          moduleUsageStats[key].totalLength += (detail.moduleLength || detail.sourceLength) * detail.quantity;
         }
       });
     });
