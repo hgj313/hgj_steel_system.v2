@@ -248,8 +248,8 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
   
   const { lossRateData, pieData } = chartData;
   const { sortedStats, crossSectionTotals, grandTotal } = moduleUsageData;
-  const validation = currentResult ? validateRequirements() : [];
-  const allSatisfied = validation.every(v => v.satisfied);
+  const requirementValidation = currentResult ? validateRequirements() : [];
+  const allSatisfied = requirementValidation.every(v => v.satisfied);
 
   // 渲染智能优化结果概览
   const renderSmartResultOverview = () => {
@@ -453,6 +453,65 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
     }
   ];
 
+  // 需求验证表格列
+  const requirementColumns = [
+    {
+      title: '设计钢材ID',
+      dataIndex: 'displayId',
+      key: 'displayId',
+      render: (value: string, record: any) => (
+        <Tag color="blue">{value || record.id}</Tag>
+      ),
+    },
+    {
+      title: '长度 (mm)',
+      dataIndex: 'length',
+      key: 'length',
+      render: (value: number) => formatNumber(value, 0),
+    },
+    {
+      title: '需求数量',
+      dataIndex: 'quantity',
+      key: 'quantity',
+      render: (value: number) => (
+        <Text strong>{value}</Text>
+      ),
+    },
+    {
+      title: '生产数量',
+      dataIndex: 'produced',
+      key: 'produced',
+      render: (value: number) => (
+        <Text strong style={{ color: value > 0 ? '#1890ff' : '#ff4d4f' }}>
+          {value}
+        </Text>
+      ),
+    },
+    {
+      title: '满足状态',
+      dataIndex: 'satisfied',
+      key: 'satisfied',
+      render: (satisfied: boolean, record: any) => (
+        <Tag color={satisfied ? 'green' : 'red'}>
+          {satisfied ? '已满足' : '未满足'}
+        </Tag>
+      ),
+    },
+    {
+      title: '差异',
+      dataIndex: 'difference',
+      key: 'difference',
+      render: (value: number) => (
+        <Text style={{ 
+          color: value === 0 ? '#52c41a' : value > 0 ? '#1890ff' : '#ff4d4f',
+          fontWeight: 'bold'
+        }}>
+          {value > 0 ? `+${value}` : value}
+        </Text>
+      ),
+    }
+  ];
+
   return (
     <Card className="section-card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -586,6 +645,78 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
               </Panel>
             </Collapse>
           ))}
+        </TabPane>
+
+        <TabPane tab="需求验证" key="requirements">
+          <Card title="生产需求匹配验证表" size="small">
+            <Table
+              columns={requirementColumns}
+              dataSource={requirementValidation}
+              rowKey="id"
+              pagination={{ pageSize: 10 }}
+              size="small"
+              summary={(pageData) => {
+                const totalRequired = pageData.reduce((sum, record) => sum + record.quantity, 0);
+                const totalProduced = pageData.reduce((sum, record) => sum + record.produced, 0);
+                const unsatisfiedCount = pageData.filter(record => !record.satisfied).length;
+                
+                return (
+                  <Table.Summary fixed>
+                    <Table.Summary.Row>
+                      <Table.Summary.Cell index={0}>
+                        <Text strong>统计</Text>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={1}>-</Table.Summary.Cell>
+                      <Table.Summary.Cell index={2}>
+                        <Text strong>{totalRequired}</Text>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={3}>
+                        <Text strong style={{ color: '#1890ff' }}>{totalProduced}</Text>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={4}>
+                        <Tag color={unsatisfiedCount === 0 ? 'green' : 'red'}>
+                          {unsatisfiedCount === 0 ? '全部满足' : `${unsatisfiedCount}项未满足`}
+                        </Tag>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={5}>
+                        <Text strong style={{ 
+                          color: (totalProduced - totalRequired) === 0 ? '#52c41a' : 
+                                (totalProduced - totalRequired) > 0 ? '#1890ff' : '#ff4d4f'
+                        }}>
+                          {totalProduced - totalRequired > 0 ? 
+                            `+${totalProduced - totalRequired}` : 
+                            totalProduced - totalRequired}
+                        </Text>
+                      </Table.Summary.Cell>
+                    </Table.Summary.Row>
+                  </Table.Summary>
+                );
+              }}
+            />
+          </Card>
+          
+          <div style={{ marginTop: 16 }}>
+            <Alert
+              type={allSatisfied ? 'success' : 'warning'}
+              message={allSatisfied ? '需求验证通过' : '需求验证异常'}
+              description={
+                allSatisfied ? (
+                  <ul style={{ margin: 0, paddingLeft: 20 }}>
+                    <li>所有设计钢材需求已完全满足</li>
+                    <li>生产计划可直接执行</li>
+                    <li>无需调整优化参数</li>
+                  </ul>
+                ) : (
+                  <ul style={{ margin: 0, paddingLeft: 20 }}>
+                    <li style={{ color: '#ff4d4f' }}>部分设计钢材需求未满足</li>
+                    <li>建议调整优化参数重新计算</li>
+                    <li>或检查模数钢材规格是否合适</li>
+                    <li>红色标记的项目需要特别关注</li>
+                  </ul>
+                )
+              }
+            />
+          </div>
         </TabPane>
 
         <TabPane tab="模数钢材统计" key="moduleStats">

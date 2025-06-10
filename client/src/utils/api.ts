@@ -70,7 +70,7 @@ export const smartOptimizeEstimate = async (
   totalCombinations: number;
   dataWarning?: string;
 }> => {
-  const response = await api.post('/smart-optimize/estimate', {
+  const response = await api.post('/smart-optimize-estimate', {
     designSteels,
     params
   });
@@ -82,7 +82,7 @@ export const smartOptimizeStart = async (
   designSteels: DesignSteel[],
   params: SmartOptimizationParams
 ): Promise<{ success: boolean; message: string }> => {
-  const response = await api.post('/smart-optimize/start', {
+  const response = await api.post('/smart-optimize-start', {
     designSteels,
     params
   });
@@ -91,19 +91,19 @@ export const smartOptimizeStart = async (
 
 // 获取智能优化进度
 export const smartOptimizeProgress = async (): Promise<SmartOptimizationProgress> => {
-  const response = await api.get('/smart-optimize/progress');
+  const response = await api.get('/smart-optimize-progress');
   return response.data;
 };
 
 // 取消智能优化
 export const smartOptimizeCancel = async (): Promise<{ success: boolean; message: string }> => {
-  const response = await api.post('/smart-optimize/cancel');
+  const response = await api.post('/smart-optimize-cancel');
   return response.data;
 };
 
 // 获取智能优化结果
 export const smartOptimizeResult = async (): Promise<SmartOptimizationResult> => {
-  const response = await api.get('/smart-optimize/result');
+  const response = await api.get('/smart-optimize-result');
   return response.data;
 };
 
@@ -115,14 +115,28 @@ export const exportToExcel = async (results: OptimizationResult, moduleSteels?: 
 
 // 导出结果为PDF
 export const exportToPDF = async (results: OptimizationResult, designSteels: DesignSteel[], moduleSteels?: ModuleSteel[]): Promise<ExportResponse> => {
-  const response = await api.post('/export/pdf', { results, designSteels, moduleSteels });
+  const response = await api.post('/export-pdf', { results, designSteels, moduleSteels });
   return response.data;
 };
 
 // 下载文件 - 支持Netlify部署
 export const downloadFile = (response: any) => {
-  if (response.data && response.filename) {
-    // Netlify Functions返回base64数据
+  if (response.htmlContent && response.filename) {
+    // PDF HTML内容，在新窗口中打开并触发打印
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(response.htmlContent);
+      printWindow.document.close();
+      
+      // 等待内容加载完成后触发打印
+      printWindow.onload = () => {
+        setTimeout(() => {
+          printWindow.print();
+        }, 500);
+      };
+    }
+  } else if (response.data && response.filename) {
+    // Netlify Functions返回base64数据（Excel文件）
     const byteCharacters = atob(response.data);
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
