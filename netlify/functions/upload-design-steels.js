@@ -91,36 +91,123 @@ exports.handler = async (event, context) => {
 
     console.log('📄 文件缓冲区大小:', fileBuffer.length, '字节');
 
-    // 读取Excel文件
-    const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(worksheet);
+    // 读取Excel文件 - 尝试多种编码方式
+    let workbook, data;
+    
+    try {
+      // 首先尝试UTF-8编码
+      workbook = XLSX.read(fileBuffer, { 
+        type: 'buffer',
+        codepage: 65001, // UTF-8编码
+        cellText: false,
+        cellDates: true
+      });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      data = XLSX.utils.sheet_to_json(worksheet);
+      
+      console.log('✅ UTF-8编码读取成功');
+    } catch (utf8Error) {
+      console.log('❌ UTF-8编码失败，尝试GBK编码');
+      try {
+        // 尝试GBK编码(中文Windows常用)
+        workbook = XLSX.read(fileBuffer, { 
+          type: 'buffer',
+          codepage: 936, // GBK编码
+          cellText: false,
+          cellDates: true
+        });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        data = XLSX.utils.sheet_to_json(worksheet);
+        
+        console.log('✅ GBK编码读取成功');
+      } catch (gbkError) {
+        console.log('❌ GBK编码也失败，尝试默认编码');
+        // 最后尝试默认方式
+        workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        data = XLSX.utils.sheet_to_json(worksheet);
+        
+        console.log('⚠️ 使用默认编码读取');
+      }
+    }
 
+    // 获取工作表名称
+    const sheetName = workbook.SheetNames[0];
+    
     console.log('📊 工作表分析:', {
       工作表名称: sheetName,
       原始行数: data.length,
       列名信息: data.length > 0 ? Object.keys(data[0]) : []
     });
 
-    // 检查列名映射
+    // 智能列名映射 - 处理编码问题和不同命名方式
+    const findColumn = (data, possibleNames, fuzzyMatch = true) => {
+      if (!data || data.length === 0) return null;
+      
+      const columns = Object.keys(data[0]);
+      
+      // 精确匹配
+      for (const name of possibleNames) {
+        if (columns.includes(name)) {
+          return name;
+        }
+      }
+      
+      // 模糊匹配（处理编码问题）
+      if (fuzzyMatch) {
+        for (const col of columns) {
+          // 长度相关
+          if ((col.includes('长') || col.includes('Length') || col.toLowerCase().includes('length')) && 
+              possibleNames.some(name => name.includes('长度') || name.includes('Length'))) {
+            console.log(`🔧 模糊匹配长度列: "${col}" -> 长度`);
+            return col;
+          }
+          // 数量相关
+          if ((col.includes('量') || col.includes('Quantity') || col.toLowerCase().includes('quantity')) && 
+              possibleNames.some(name => name.includes('数量') || name.includes('Quantity'))) {
+            console.log(`🔧 模糊匹配数量列: "${col}" -> 数量`);
+            return col;
+          }
+          // 截面面积相关
+          if ((col.includes('面') || col.includes('Section') || col.toLowerCase().includes('section') || 
+               col.includes('积') || col.includes('Area') || col.toLowerCase().includes('area')) && 
+              possibleNames.some(name => name.includes('截面') || name.includes('面积') || name.includes('Section'))) {
+            console.log(`🔧 模糊匹配截面面积列: "${col}" -> 截面面积`);
+            return col;
+          }
+        }
+      }
+      
+      return null;
+    };
+
+    // 智能检查列名映射
+    let lengthColumn, quantityColumn, crossSectionColumn;
+    
     if (data.length > 0) {
-      const firstRow = data[0];
+      // 使用智能匹配查找列名
+      lengthColumn = findColumn(data, ['长度', 'Length', 'length']);
+      quantityColumn = findColumn(data, ['数量', 'Quantity', 'quantity']);
+      crossSectionColumn = findColumn(data, ['截面面积', 'CrossSection', 'crossSection', '面积', 'Area', 'area']);
+      
       const columnMapping = {
-        长度: firstRow.hasOwnProperty('长度') ? '✅ 找到' : (firstRow.hasOwnProperty('Length') ? '✅ 找到(English)' : (firstRow.hasOwnProperty('length') ? '✅ 找到(lowercase)' : '❌ 未找到')),
-        数量: firstRow.hasOwnProperty('数量') ? '✅ 找到' : (firstRow.hasOwnProperty('Quantity') ? '✅ 找到(English)' : (firstRow.hasOwnProperty('quantity') ? '✅ 找到(lowercase)' : '❌ 未找到')),
-        截面面积: firstRow.hasOwnProperty('截面面积') ? '✅ 找到' : (firstRow.hasOwnProperty('CrossSection') ? '✅ 找到(English)' : (firstRow.hasOwnProperty('crossSection') ? '✅ 找到(lowercase)' : '❌ 未找到'))
+        长度: lengthColumn ? `✅ 找到: "${lengthColumn}"` : '❌ 未找到',
+        数量: quantityColumn ? `✅ 找到: "${quantityColumn}"` : '❌ 未找到',
+        截面面积: crossSectionColumn ? `✅ 找到: "${crossSectionColumn}"` : '❌ 未找到'
       };
-      console.log('🔍 列名映射结果:', columnMapping);
+      console.log('🔍 智能列名映射结果:', columnMapping);
     }
 
-    // 转换数据格式
+    // 转换数据格式 - 使用智能映射的列名
     const designSteels = data.map((row, index) => {
       const steel = {
         id: `design_${Date.now()}_${index}`,
-        length: parseFloat(row['长度'] || row['Length'] || row.length || 0),
-        quantity: parseInt(row['数量'] || row['Quantity'] || row.quantity || 0),
-        crossSection: parseFloat(row['截面面积'] || row['CrossSection'] || row.crossSection || 0),
+        length: parseFloat(row[lengthColumn] || row['长度'] || row['Length'] || row.length || 0),
+        quantity: parseInt(row[quantityColumn] || row['数量'] || row['Quantity'] || row.quantity || 0),
+        crossSection: parseFloat(row[crossSectionColumn] || row['截面面积'] || row['CrossSection'] || row.crossSection || 0),
         specification: row['规格'] || row['Specification'] || row.specification || '',
         material: row['材质'] || row['Material'] || row.material || '',
         note: row['备注'] || row['Note'] || row.note || ''
@@ -131,9 +218,14 @@ exports.handler = async (event, context) => {
         console.log(`第${index + 1}行解析结果:`, {
           原始数据: row,
           解析结果: steel,
-          长度来源: row['长度'] ? '长度' : (row['Length'] ? 'Length' : (row.length ? 'length' : '未找到')),
-          数量来源: row['数量'] ? '数量' : (row['Quantity'] ? 'Quantity' : (row.quantity ? 'quantity' : '未找到')),
-          截面面积来源: row['截面面积'] ? '截面面积' : (row['CrossSection'] ? 'CrossSection' : (row.crossSection ? 'crossSection' : '未找到'))
+          长度来源: lengthColumn || '未找到',
+          数量来源: quantityColumn || '未找到',
+          截面面积来源: crossSectionColumn || '未找到',
+          使用的列名: {
+            长度: lengthColumn,
+            数量: quantityColumn,
+            截面面积: crossSectionColumn
+          }
         });
       }
 
