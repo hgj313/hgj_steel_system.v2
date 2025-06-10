@@ -740,22 +740,18 @@ app.post('/api/upload-design-steels', upload.single('file'), (req, res) => {
     const workbook = XLSX.readFile(filePath);
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: ['length', 'quantity', 'crossSection'] });
+    const data = XLSX.utils.sheet_to_json(worksheet);
 
-    // 清理和验证数据
-    const designSteels = jsonData
-      .filter((row, index) => {
-        // 跳过标题行和空行
-        if (index === 0 || !row.length || !row.quantity || !row.crossSection) return false;
-        return true;
-      })
-      .map((row, index) => ({
-        id: `DESIGN_${index + 1}`,
-        length: parseFloat(row.length),
-        quantity: parseInt(row.quantity),
-        crossSection: parseFloat(row.crossSection)
-      }))
-      .filter(steel => steel.length > 0 && steel.quantity > 0 && steel.crossSection > 0);
+    // 转换数据格式 - 支持多种列名格式
+    const designSteels = data.map((row, index) => ({
+      id: `design_${Date.now()}_${index}`,
+      length: parseFloat(row['长度'] || row['Length'] || row.length || 0),
+      quantity: parseInt(row['数量'] || row['Quantity'] || row.quantity || 0),
+      crossSection: parseFloat(row['截面面积'] || row['CrossSection'] || row.crossSection || 0),
+      specification: row['规格'] || row['Specification'] || row.specification || '',
+      material: row['材质'] || row['Material'] || row.material || '',
+      note: row['备注'] || row['Note'] || row.note || ''
+    })).filter(steel => steel.length > 0 && steel.quantity > 0);
 
     // 清理临时文件
     fs.removeSync(filePath);
