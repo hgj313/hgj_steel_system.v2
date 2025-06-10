@@ -24,6 +24,18 @@ export interface Remainder {
   isExcess?: boolean;
 }
 
+// 切割详情类型
+export interface CuttingDetail {
+  sourceType: 'module' | 'remainder';
+  sourceId: string;
+  sourceLength: number;
+  moduleType?: string;
+  moduleLength?: number;
+  designId: string;
+  length: number;
+  quantity: number;
+}
+
 // 切割计划类型
 export interface CuttingPlan {
   sourceType: 'module' | 'remainder';
@@ -47,7 +59,7 @@ export interface Solution {
   cuttingPlans: CuttingPlan[];
   totalModuleUsed: number;
   totalWaste: number;
-  details: CuttingPlan[];
+  details: CuttingDetail[];
 }
 
 // 优化结果类型

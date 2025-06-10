@@ -98,17 +98,25 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
 
   // 验证需求满足情况
   const validateRequirements = () => {
+    if (!currentResult || !currentResult.solutions) {
+      return [];
+    }
+    
     const produced: Record<string, number> = {};
     
     Object.values(currentResult.solutions).forEach(solution => {
-      solution.details.forEach(detail => {
-        detail.cuts.forEach(cut => {
-          if (!produced[cut.designId]) {
-            produced[cut.designId] = 0;
+      // 确保 details 数组存在
+      if (solution.details && Array.isArray(solution.details)) {
+        solution.details.forEach(detail => {
+          // details 数组中的每个元素是 CuttingDetail 类型，直接包含 designId, length, quantity
+          if (detail.designId && detail.quantity) {
+            if (!produced[detail.designId]) {
+              produced[detail.designId] = 0;
+            }
+            produced[detail.designId] += detail.quantity;
           }
-          produced[cut.designId] += cut.quantity;
         });
-      });
+      }
     });
 
     const validation = designSteels.map(steel => {
@@ -562,7 +570,7 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
               >
                 <Table
                   columns={cuttingColumns}
-                  dataSource={solution.details}
+                  dataSource={solution.cuttingPlans}
                   rowKey={(record, index) => `${crossSection}-${index}`}
                   pagination={false}
                   size="small"
