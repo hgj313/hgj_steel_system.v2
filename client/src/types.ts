@@ -25,6 +25,8 @@ export interface Remainder {
   sourceChain: string[];
   crossSection: number;
   isExcess?: boolean;
+  isWasteMarked?: boolean; // 标记为已计入废料
+  isUnusable?: boolean;    // 标记为不可用余料
 }
 
 // 切割详情类型

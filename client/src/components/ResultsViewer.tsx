@@ -459,11 +459,26 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
       key: 'newRemainders',
       render: (_: any, record: CuttingPlan) => (
         <div>
-          {record.newRemainders?.map((remainder, index) => (
-            <Tag key={index} color="orange">
-              {remainder.id}: {remainder.length}mm
-            </Tag>
-          ))}
+          {record.newRemainders?.map((remainder, index) => {
+            // 检查是否同时标记为余料和废料
+            const isWasteMarked = remainder.isExcess && remainder.isWasteMarked;
+            return (
+              <Tag 
+                key={index} 
+                color={isWasteMarked ? "red" : "orange"}
+                style={{
+                  backgroundColor: isWasteMarked ? '#fff2f0' : undefined,
+                  borderColor: isWasteMarked ? '#ffccc7' : undefined,
+                  color: isWasteMarked ? '#cf1322' : undefined,
+                  fontWeight: isWasteMarked ? 'bold' : 'normal'
+                }}
+                title={isWasteMarked ? '此余料已计入当前周期废料，但保留为余料供后续生产使用' : '可用余料'}
+              >
+                {remainder.id}: {remainder.length}mm
+                {isWasteMarked && ' ⚠️'}
+              </Tag>
+            );
+          })}
         </div>
       ),
     },
@@ -718,6 +733,34 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
         </TabPane>
 
         <TabPane tab="切割详情" key="details">
+          <Alert
+            type="info"
+            message="余料标识说明"
+            description={
+              <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Tag color="orange">正常余料</Tag>
+                  <Text type="secondary">可用于后续生产</Text>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Tag 
+                    color="red" 
+                    style={{
+                      backgroundColor: '#fff2f0',
+                      borderColor: '#ffccc7',
+                      color: '#cf1322',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    余料+废料 ⚠️
+                  </Tag>
+                  <Text type="secondary">已计入当前周期损耗率，但保留为余料供后续生产使用</Text>
+                </div>
+              </div>
+            }
+            style={{ marginBottom: 16 }}
+            showIcon
+          />
           {(() => {
             // 按规格重新组织优化结果
             const specificationResults = regroupOptimizationResultsBySpecification(
