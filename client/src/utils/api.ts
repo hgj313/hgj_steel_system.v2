@@ -108,8 +108,8 @@ export const smartOptimizeResult = async (): Promise<SmartOptimizationResult> =>
 };
 
 // 导出结果为Excel
-export const exportToExcel = async (results: OptimizationResult, designSteels: DesignSteel[], moduleSteels?: ModuleSteel[]): Promise<ExportResponse> => {
-  const response = await api.post('/export-excel', { results, designSteels, moduleSteels });
+export const exportToExcel = async (results: OptimizationResult, moduleSteels?: ModuleSteel[]): Promise<ExportResponse> => {
+  const response = await api.post('/export-excel', { results, moduleSteels });
   return response.data;
 };
 

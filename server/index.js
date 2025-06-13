@@ -1153,44 +1153,68 @@ app.get('/api/smart-optimize/result', (req, res) => {
 // 导出结果为Excel
 app.post('/api/export/excel', (req, res) => {
   try {
-    const { results, designSteels } = req.body;
-    
-    if (!designSteels) {
-      return res.status(400).json({ error: '缺少设计钢材数据' });
-    }
+    const { results, moduleSteels } = req.body;
     
     // 创建工作簿
     const wb = XLSX.utils.book_new();
     
-    // 创建设计钢材清单工作表 - 只包含基本信息
-    const designData = [['编号', '规格', '长度(mm)', '数量']];
+    // 创建模数钢材采购清单工作表
+    const moduleStats = {};
+    Object.entries(results.solutions).forEach(([crossSection, solution]) => {
+      solution.details.forEach(detail => {
+        if (detail.sourceType === 'module' && detail.moduleType) {
+          const key = `${detail.moduleType}_${crossSection}`;
+          if (!moduleStats[key]) {
+            moduleStats[key] = {
+              moduleType: detail.moduleType,
+              crossSection: parseInt(crossSection),
+              length: detail.moduleLength || detail.sourceLength,
+              count: 0,
+              totalLength: 0
+            };
+          }
+          moduleStats[key].count += 1;
+          moduleStats[key].totalLength += detail.moduleLength || detail.sourceLength;
+        }
+      });
+    });
 
-    // 按规格分组并排序
-    const groupedBySpec = {};
-    designSteels.forEach(steel => {
-      const spec = steel.specification || `截面${steel.crossSection}mm²`;
-      if (!groupedBySpec[spec]) {
-        groupedBySpec[spec] = [];
+    const purchaseData = [['规格', '截面面积(mm²)', '长度(mm)', '采购数量(根)', '总长度(mm)']];
+    
+    // 按截面面积和规格排序
+    const sortedStats = Object.values(moduleStats).sort((a, b) => {
+      if (a.crossSection !== b.crossSection) {
+        return a.crossSection - b.crossSection;
       }
-      groupedBySpec[spec].push(steel);
+      return a.length - b.length;
+    });
+    
+    sortedStats.forEach(stat => {
+      purchaseData.push([
+        stat.moduleType,
+        stat.crossSection,
+        stat.length,
+        stat.count,
+        stat.totalLength
+      ]);
     });
 
-    // 按规格排序，每个规格内按长度排序
-    Object.keys(groupedBySpec).sort().forEach(spec => {
-      groupedBySpec[spec]
-        .sort((a, b) => a.length - b.length)
-        .forEach(steel => {
-          designData.push([
-            steel.displayId || steel.id,
-            steel.specification || `截面${steel.crossSection}mm²`,
-            steel.length,
-            steel.quantity
-          ]);
-        });
-    });
+    // 添加总计行
+    const grandTotal = sortedStats.reduce((acc, stat) => ({
+      count: acc.count + stat.count,
+      totalLength: acc.totalLength + stat.totalLength
+    }), { count: 0, totalLength: 0 });
 
-    const designWS = XLSX.utils.aoa_to_sheet(designData);
-    XLSX.utils.book_append_sheet(wb, designWS, '设计钢材清单');
+    purchaseData.push([
+      '总计',
+      '-',
+      '-',
+      grandTotal.count,
+      grandTotal.totalLength
+    ]);
+
+    const purchaseWS = XLSX.utils.aoa_to_sheet(purchaseData);
+    XLSX.utils.book_append_sheet(wb, purchaseWS, '模数钢材采购清单');
 
     // 简化的汇总表
     const summaryData = [
@@ -1203,7 +1227,7 @@ app.post('/api/export/excel', (req, res) => {
     XLSX.utils.book_append_sheet(wb, summaryWS, '汇总信息');
 
     // 生成文件
-    const fileName = `steel_optimization_${Date.now()}.xlsx`;
+    const fileName = `module_steel_purchase_list_${Date.now()}.xlsx`;
     const filePath = path.join(uploadsDir, fileName);
     XLSX.writeFile(wb, filePath);
 

@@ -9,48 +9,79 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    const { results, designSteels } = JSON.parse(event.body);
+    const { results, moduleSteels } = JSON.parse(event.body);
 
-    if (!results || !results.solutions || !designSteels) {
+    if (!results || !results.solutions) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: '缺少结果数据或设计钢材数据' })
+        body: JSON.stringify({ error: '缺少结果数据' })
       };
     }
 
     // 创建工作簿
     const workbook = XLSX.utils.book_new();
 
-    // 创建设计钢材清单工作表 - 只包含基本信息
-    const designData = [];
-    designData.push(['编号', '规格', '长度(mm)', '数量']);
-
-    // 按规格分组并排序
-    const groupedBySpec = {};
-    designSteels.forEach(steel => {
-      const spec = steel.specification || `截面${steel.crossSection}mm²`;
-      if (!groupedBySpec[spec]) {
-        groupedBySpec[spec] = [];
-      }
-      groupedBySpec[spec].push(steel);
-    });
-
-    // 按规格排序，每个规格内按长度排序
-    Object.keys(groupedBySpec).sort().forEach(spec => {
-      groupedBySpec[spec]
-        .sort((a, b) => a.length - b.length)
-        .forEach(steel => {
-          designData.push([
-            steel.displayId || steel.id,
-            steel.specification || `截面${steel.crossSection}mm²`,
-            steel.length,
-            steel.quantity
-          ]);
+    // 创建模数钢材采购清单工作表
+    const moduleStats = {};
+    
+    Object.entries(results.solutions).forEach(([crossSection, solution]) => {
+      if (solution.details && solution.details.length > 0) {
+        solution.details.forEach(detail => {
+          if (detail.sourceType === 'module' && detail.moduleType) {
+            const key = `${detail.moduleType}_${detail.moduleLength || detail.sourceLength}`;
+            if (!moduleStats[key]) {
+              moduleStats[key] = {
+                moduleType: detail.moduleType,
+                crossSection: parseInt(crossSection),
+                length: detail.moduleLength || detail.sourceLength,
+                count: 0,
+                totalLength: 0
+              };
+            }
+            moduleStats[key].count += detail.quantity || 1;
+            moduleStats[key].totalLength += (detail.moduleLength || detail.sourceLength) * (detail.quantity || 1);
+          }
         });
+      }
     });
 
-    const designSheet = XLSX.utils.aoa_to_sheet(designData);
-    XLSX.utils.book_append_sheet(workbook, designSheet, '设计钢材清单');
+    const purchaseData = [];
+    purchaseData.push(['规格', '截面面积(mm²)', '长度(mm)', '采购数量(根)', '总长度(mm)']);
+
+    // 按截面面积和长度排序
+    const sortedStats = Object.values(moduleStats).sort((a, b) => {
+      if (a.crossSection !== b.crossSection) {
+        return a.crossSection - b.crossSection;
+      }
+      return a.length - b.length;
+    });
+
+    sortedStats.forEach(stat => {
+      purchaseData.push([
+        stat.moduleType,
+        stat.crossSection,
+        stat.length,
+        stat.count,
+        stat.totalLength
+      ]);
+    });
+
+    // 添加总计行
+    const grandTotal = sortedStats.reduce((acc, stat) => ({
+      count: acc.count + stat.count,
+      totalLength: acc.totalLength + stat.totalLength
+    }), { count: 0, totalLength: 0 });
+
+    purchaseData.push([
+      '总计',
+      '-',
+      '-',
+      grandTotal.count,
+      grandTotal.totalLength
+    ]);
+
+    const purchaseSheet = XLSX.utils.aoa_to_sheet(purchaseData);
+    XLSX.utils.book_append_sheet(workbook, purchaseSheet, '模数钢材采购清单');
 
     // 创建简化的汇总信息工作表
     const summaryData = [];
@@ -74,7 +105,7 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({
         success: true,
         data: base64,
-        filename: `钢材优化结果_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        filename: `模数钢材采购清单_${new Date().toISOString().slice(0, 10)}.xlsx`,
         message: 'Excel文件生成成功'
       })
     };

@@ -279,7 +279,7 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
     e.stopPropagation();
     setExporting(true);
     try {
-      const response = await exportToExcel(currentResult, designSteels, moduleSteels);
+      const response = await exportToExcel(currentResult, moduleSteels);
       downloadFile(response);
       message.success('Excel文件导出成功');
     } catch (error: any) {
