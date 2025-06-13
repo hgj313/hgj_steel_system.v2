@@ -173,15 +173,27 @@ class SteelOptimizer {
       totalMaterial = totalModuleUsed * avgModuleLength;
     }
 
-    const totalLossRate = totalMaterial > 0 ? (totalWaste / totalMaterial) * 100 : 0;
-    const executionTime = Date.now() - this.startTime;
-
-    return {
+    // 执行MW-CD交换优化
+    const optimizationResults = {
       solutions,
-      totalLossRate: parseFloat(totalLossRate.toFixed(2)),
+      totalLossRate: 0,
       totalModuleUsed,
       totalWaste,
       totalMaterial,
+      executionTime: 0
+    };
+    
+    this.performMWCDInterchange(optimizationResults);
+
+    const finalLossRate = optimizationResults.totalMaterial > 0 ? (optimizationResults.totalWaste / optimizationResults.totalMaterial) * 100 : 0;
+    const executionTime = Date.now() - this.startTime;
+
+    return {
+      solutions: optimizationResults.solutions,
+      totalLossRate: parseFloat(finalLossRate.toFixed(2)),
+      totalModuleUsed: optimizationResults.totalModuleUsed,
+      totalWaste: optimizationResults.totalWaste,
+      totalMaterial: optimizationResults.totalMaterial,
       executionTime
     };
   }
@@ -409,6 +421,182 @@ class SteelOptimizer {
         quantity: cut.quantity
       });
     });
+  }
+
+  // MW-CD交换优化算法
+  performMWCDInterchange(results) {
+    console.log('🔄 开始执行MW-CD交换优化...');
+    
+    Object.entries(results.solutions).forEach(([crossSection, solution]) => {
+      // 收集MW: 标记为余料+废料的余料
+      const mwRemainders = [];
+      solution.cuttingPlans.forEach((plan, planIndex) => {
+        if (plan.newRemainders) {
+          plan.newRemainders.forEach((remainder, remainderIndex) => {
+            if (remainder.isWasteMarked) {
+              mwRemainders.push({
+                remainder,
+                planIndex,
+                remainderIndex,
+                length: remainder.length
+              });
+            }
+          });
+        }
+      });
+
+      // 收集CD: 使用余料组合进行切割的计划
+      const cdCombinations = [];
+      solution.cuttingPlans.forEach((plan, planIndex) => {
+        if (plan.sourceType === 'remainder' && plan.sourceId.includes('+')) {
+          cdCombinations.push({
+            plan,
+            planIndex,
+            totalLength: plan.sourceLength,
+            cuts: plan.cuts
+          });
+        }
+      });
+
+      // 按长度降序排序
+      mwRemainders.sort((a, b) => b.length - a.length);
+      cdCombinations.sort((a, b) => b.totalLength - a.totalLength);
+
+      console.log(`截面${crossSection}: MW数量=${mwRemainders.length}, CD数量=${cdCombinations.length}`);
+
+      // 执行交换
+      const maxInterchanges = Math.min(mwRemainders.length, cdCombinations.length);
+      let interchangeCount = 0;
+
+      for (let i = 0; i < maxInterchanges; i++) {
+        const mw = mwRemainders[i];
+        const cd = cdCombinations[i];
+
+        // 检查是否可以交换 (MW长度 > CD长度)
+        if (mw.length > cd.totalLength) {
+          // 验证MW可以切割CD的所有设计钢材
+          const totalCutLength = cd.cuts.reduce((sum, cut) => sum + (cut.length * cut.quantity), 0);
+          
+          if (mw.length >= totalCutLength) {
+            console.log(`🔄 执行交换: MW(${mw.length}mm) ↔ CD(${cd.totalLength}mm)`);
+            
+            // 执行交换
+            this.executeInterchange(solution, mw, cd, crossSection);
+            interchangeCount++;
+          }
+        }
+      }
+
+      console.log(`截面${crossSection}: 完成${interchangeCount}次交换`);
+    });
+
+    // 重新计算总废料量
+    this.recalculateTotalWaste(results);
+  }
+
+  // 执行单次交换
+  executeInterchange(solution, mw, cd, crossSection) {
+    // 1. 将MW余料转换为切割源
+    const newCuttingPlan = {
+      sourceType: 'remainder',
+      sourceId: mw.remainder.id,
+      sourceDescription: `余料 ${mw.remainder.id}`,
+      sourceLength: mw.length,
+      cuts: [...cd.cuts], // 复制原有的切割计划
+      waste: 0,
+      newRemainders: []
+    };
+
+    // 2. 计算新的余料长度
+    const totalCutLength = cd.cuts.reduce((sum, cut) => sum + (cut.length * cut.quantity), 0);
+    const newRemainderLength = mw.length - totalCutLength;
+
+    // 3. 处理新余料
+    if (newRemainderLength > 0) {
+      if (newRemainderLength >= this.wasteThreshold) {
+        // 创建新余料
+        const newRemainder = {
+          id: this.generateRemainderIdFromSource(mw.remainder.id, crossSection),
+          length: newRemainderLength,
+          sourceId: mw.remainder.id,
+          sourceChain: mw.remainder.sourceChain || [mw.remainder.id],
+          crossSection: crossSection,
+          generation: (mw.remainder.generation || 0) + 1
+        };
+        newCuttingPlan.newRemainders.push(newRemainder);
+      } else {
+        // 标记为废料
+        newCuttingPlan.waste = newRemainderLength;
+      }
+    }
+
+    // 4. 将原CD组合标记为废料
+    const wasteRemainder = {
+      id: this.generateRemainderIdFromSource('waste_' + cd.plan.sourceId, crossSection),
+      length: cd.totalLength,
+      sourceId: cd.plan.sourceId,
+      sourceChain: [],
+      crossSection: crossSection,
+      isWasteMarked: true,
+      isUnusable: true
+    };
+
+    // 5. 更新解决方案
+    // 替换原有的切割计划
+    solution.cuttingPlans[cd.planIndex] = newCuttingPlan;
+    
+    // 移除原MW余料，添加废料余料
+    const originalPlan = solution.cuttingPlans[mw.planIndex];
+    originalPlan.newRemainders[mw.remainderIndex] = wasteRemainder;
+
+    // 6. 更新详情记录
+    this.updateDetailsAfterInterchange(solution, cd, newCuttingPlan);
+  }
+
+  // 更新详情记录
+  updateDetailsAfterInterchange(solution, cd, newCuttingPlan) {
+    // 移除原有的详情记录
+    solution.details = solution.details.filter(detail => 
+      detail.sourceId !== cd.plan.sourceId
+    );
+
+    // 添加新的详情记录
+    newCuttingPlan.cuts.forEach(cut => {
+      solution.details.push({
+        sourceType: 'remainder',
+        sourceId: newCuttingPlan.sourceId,
+        sourceLength: newCuttingPlan.sourceLength,
+        designId: cut.designId,
+        length: cut.length,
+        quantity: cut.quantity
+      });
+    });
+  }
+
+  // 重新计算总废料量
+  recalculateTotalWaste(results) {
+    results.totalWaste = 0;
+    
+    Object.values(results.solutions).forEach(solution => {
+      solution.totalWaste = 0;
+      
+      solution.cuttingPlans.forEach(plan => {
+        solution.totalWaste += plan.waste || 0;
+        
+        // 计算标记为废料的余料
+        if (plan.newRemainders) {
+          plan.newRemainders.forEach(remainder => {
+            if (remainder.isWasteMarked && remainder.length < this.wasteThreshold) {
+              solution.totalWaste += remainder.length;
+            }
+          });
+        }
+      });
+      
+      results.totalWaste += solution.totalWaste;
+    });
+
+    console.log(`🔄 交换后总废料量: ${results.totalWaste}mm`);
   }
 }
 
