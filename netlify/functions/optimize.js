@@ -373,6 +373,41 @@ class SteelOptimizer {
   }
 }
 
+// 生成设计钢材显示编号 (A1, A2, B1, B2...)
+function generateDisplayIds(steels) {
+  // 按截面面积分组
+  const groups = {};
+  steels.forEach(steel => {
+    const crossSection = Math.round(steel.crossSection); // 四舍五入处理浮点数
+    if (!groups[crossSection]) {
+      groups[crossSection] = [];
+    }
+    groups[crossSection].push(steel);
+  });
+
+  // 按截面面积排序
+  const sortedCrossSections = Object.keys(groups).map(Number).sort((a, b) => a - b);
+  
+  const result = [];
+  sortedCrossSections.forEach((crossSection, groupIndex) => {
+    const letter = String.fromCharCode(65 + groupIndex); // A, B, C...
+    const groupSteels = groups[crossSection];
+    
+    // 按长度排序
+    groupSteels.sort((a, b) => a.length - b.length);
+    
+    groupSteels.forEach((steel, itemIndex) => {
+      result.push({
+        ...steel,
+        displayId: `${letter}${itemIndex + 1}` // A1, A2, B1, B2...
+      });
+    });
+  });
+
+  console.log('🎯 生成显示ID完成:', result.slice(0, 5).map(s => ({ id: s.id, displayId: s.displayId, crossSection: s.crossSection, length: s.length })));
+  return result;
+}
+
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
     return {
@@ -391,8 +426,11 @@ exports.handler = async (event, context) => {
       };
     }
 
+    // 生成显示ID (A1, A2, B1, B2...)
+    const designSteelsWithDisplayIds = generateDisplayIds(designSteels);
+
     const optimizer = new SteelOptimizer(
-      designSteels,
+      designSteelsWithDisplayIds,
       moduleSteels,
       wasteThreshold || 500,
       expectedLossRate || 5,

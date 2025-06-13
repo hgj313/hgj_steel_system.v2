@@ -1,5 +1,40 @@
 const XLSX = require('xlsx');
 
+// 生成设计钢材显示编号 (A1, A2, B1, B2...)
+function generateDisplayIds(steels) {
+  // 按截面面积分组
+  const groups = {};
+  steels.forEach(steel => {
+    const crossSection = Math.round(steel.crossSection); // 四舍五入处理浮点数
+    if (!groups[crossSection]) {
+      groups[crossSection] = [];
+    }
+    groups[crossSection].push(steel);
+  });
+
+  // 按截面面积排序
+  const sortedCrossSections = Object.keys(groups).map(Number).sort((a, b) => a - b);
+  
+  const result = [];
+  sortedCrossSections.forEach((crossSection, groupIndex) => {
+    const letter = String.fromCharCode(65 + groupIndex); // A, B, C...
+    const groupSteels = groups[crossSection];
+    
+    // 按长度排序
+    groupSteels.sort((a, b) => a.length - b.length);
+    
+    groupSteels.forEach((steel, itemIndex) => {
+      result.push({
+        ...steel,
+        displayId: `${letter}${itemIndex + 1}` // A1, A2, B1, B2...
+      });
+    });
+  });
+
+  console.log('🎯 生成显示ID完成:', result.slice(0, 5).map(s => ({ id: s.id, displayId: s.displayId, crossSection: s.crossSection, length: s.length })));
+  return result;
+}
+
 exports.handler = async (event, context) => {
   // 设置CORS头
   const headers = {
@@ -255,6 +290,9 @@ exports.handler = async (event, context) => {
     };
     console.log('📊 截面面积统计:', crossSectionStats);
 
+    // 生成显示ID (A1, A2, B1, B2...)
+    const designSteelsWithDisplayIds = generateDisplayIds(designSteels);
+
     console.log('=== Netlify Functions: Excel文件处理完成 ===');
 
     return {
@@ -262,11 +300,11 @@ exports.handler = async (event, context) => {
       headers,
       body: JSON.stringify({
         success: true,
-        designSteels: designSteels,
-        message: `成功导入 ${designSteels.length} 条设计钢材数据`,
+        designSteels: designSteelsWithDisplayIds,
+        message: `成功导入 ${designSteelsWithDisplayIds.length} 条设计钢材数据`,
         debugInfo: {
           原始行数: data.length,
-          有效数据: designSteels.length,
+          有效数据: designSteelsWithDisplayIds.length,
           截面面积统计: crossSectionStats,
           列名信息: data.length > 0 ? Object.keys(data[0]) : [],
           示例数据: data.slice(0, 2)
