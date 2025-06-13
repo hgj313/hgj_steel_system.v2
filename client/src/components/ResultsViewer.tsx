@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Card,
   Button,
@@ -25,7 +25,11 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { OptimizationResult, DesignSteel, ModuleSteel, CuttingPlan, SmartOptimizationResult, OptimizationMode } from '../types';
 import { exportToExcel, exportToPDF, downloadFile } from '../utils/api';
-import { formatNumber } from '../utils/steelUtils';
+import { 
+  formatNumber, 
+  buildCrossSectionToSpecMapping, 
+  regroupOptimizationResultsBySpecification 
+} from '../utils/steelUtils';
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
@@ -40,6 +44,7 @@ interface Props {
 }
 
 const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, moduleSteels, optimizationMode }) => {
+  const [activeTab, setActiveTab] = useState<string>('summary');
   const [exporting, setExporting] = useState(false);
   const [exportingPDF, setExportingPDF] = useState(false);
 
@@ -52,6 +57,210 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
   };
 
   const currentResult = getCurrentResult();
+
+  // 建立规格映射 - 确保每次都能获取最新映射
+  const crossSectionToSpecMapping = useMemo(() => {
+    return buildCrossSectionToSpecMapping(designSteels);
+  }, [designSteels]);
+
+  // 准备图表数据
+  const prepareChartData = useMemo(() => {
+    if (!currentResult || !currentResult.solutions) {
+      return { lossRateData: [], pieData: [] };
+    }
+    
+    // 调试信息
+    console.log('🔍 调试规格映射:', {
+      '设计钢材数量': designSteels.length,
+      '前3个设计钢材': designSteels.slice(0, 3).map(s => ({
+        id: s.id,
+        specification: s.specification,
+        crossSection: s.crossSection
+      })),
+      '规格映射': crossSectionToSpecMapping,
+      '优化结果截面面积': Object.keys(currentResult.solutions)
+    });
+    
+    const crossSections = Object.keys(currentResult.solutions);
+    const lossRateData = crossSections.map(crossSection => {
+      const solution = currentResult.solutions[crossSection];
+      const crossSectionValue = Math.round(parseFloat(crossSection));
+      const specification = crossSectionToSpecMapping[crossSectionValue] || `未知规格(${crossSectionValue}mm²)`;
+      
+      console.log(`截面面积 ${crossSection} → 四舍五入: ${crossSectionValue} → 映射到规格: ${specification}`);
+      
+      // 计算总材料使用量（只计算模数钢材）
+      const totalMaterial = solution.cuttingPlans?.reduce((sum, plan) => {
+        return sum + (plan.sourceType === 'module' ? plan.sourceLength : 0);
+      }, 0) || 0;
+      
+      const lossRate = totalMaterial > 0 ? (solution.totalWaste / totalMaterial) * 100 : 0;
+      
+      return {
+        specification: specification,
+        lossRate: parseFloat(lossRate.toFixed(2)),
+        moduleUsed: solution.totalModuleUsed,
+        waste: solution.totalWaste
+      };
+    });
+
+    const pieData = crossSections.map((crossSection, index) => {
+      const colors = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+      const crossSectionValue = Math.round(parseFloat(crossSection));
+      const specification = crossSectionToSpecMapping[crossSectionValue] || `未知规格(${crossSectionValue}mm²)`;
+      
+      return {
+        name: specification,
+        value: currentResult.solutions[crossSection].totalModuleUsed,
+        fill: colors[index % colors.length]
+      };
+    });
+
+    return { lossRateData, pieData };
+  }, [currentResult, crossSectionToSpecMapping]);
+
+  // 准备模数钢材使用统计数据
+  const prepareModuleUsageStats = useMemo(() => {
+    if (!currentResult || !currentResult.solutions) {
+      return { 
+        sortedStats: [], 
+        specificationTotals: {}, 
+        grandTotal: { count: 0, totalLength: 0 } 
+      };
+    }
+    
+    // Group by specification and length, not by moduleType to avoid double counting
+    const moduleUsageStats: Record<string, {
+      specification: string;
+      crossSection: number;
+      length: number;
+      count: number;
+      totalLength: number;
+    }> = {};
+
+    Object.entries(currentResult.solutions).forEach(([crossSection, solution]) => {
+      const crossSectionValue = Math.round(parseFloat(crossSection));
+      const specification = crossSectionToSpecMapping[crossSectionValue] || `未知规格(${crossSectionValue}mm²)`;
+      
+      // Count unique module steel bars by sourceId (not detail records)
+      const uniqueModuleBars: Record<string, { length: number; sourceId: string }> = {};
+      
+      solution.details?.forEach(detail => {
+        // Only count raw module steel bars, ignore remainders/remnants
+        if (detail.sourceType === 'module' && detail.sourceId) {
+          const length = detail.moduleLength || detail.sourceLength;
+          const sourceId = detail.sourceId;
+          
+          // Each unique sourceId represents one physical steel bar
+          if (!uniqueModuleBars[sourceId]) {
+            uniqueModuleBars[sourceId] = {
+              length: length,
+              sourceId: sourceId
+            };
+          }
+        }
+      });
+      
+      // Group by length and count unique bars
+      const moduleBarCounts: Record<number, number> = {};
+      Object.values(uniqueModuleBars).forEach(bar => {
+        if (!moduleBarCounts[bar.length]) {
+          moduleBarCounts[bar.length] = 0;
+        }
+        moduleBarCounts[bar.length] += 1;
+      });
+      
+      // Add to stats
+      Object.entries(moduleBarCounts).forEach(([lengthStr, count]) => {
+        const length = parseInt(lengthStr);
+        const key = `${specification}_${length}`;
+        if (!moduleUsageStats[key]) {
+          moduleUsageStats[key] = {
+            specification: specification,
+            crossSection: crossSectionValue,
+            length: length,
+            count: 0,
+            totalLength: 0
+          };
+        }
+        moduleUsageStats[key].count += count;
+        moduleUsageStats[key].totalLength += length * count;
+      });
+    });
+
+    const sortedStats = Object.values(moduleUsageStats).sort((a, b) => {
+      if (a.specification !== b.specification) {
+        return a.specification.localeCompare(b.specification);
+      }
+      return a.length - b.length;
+    });
+
+    const specificationTotals: Record<string, { count: number; totalLength: number }> = {};
+    sortedStats.forEach(stat => {
+      if (!specificationTotals[stat.specification]) {
+        specificationTotals[stat.specification] = { count: 0, totalLength: 0 };
+      }
+      specificationTotals[stat.specification].count += stat.count;
+      specificationTotals[stat.specification].totalLength += stat.totalLength;
+    });
+
+    const grandTotal = sortedStats.reduce((acc, stat) => ({
+      count: acc.count + stat.count,
+      totalLength: acc.totalLength + stat.totalLength
+    }), { count: 0, totalLength: 0 });
+
+    return { sortedStats, specificationTotals, grandTotal };
+  }, [currentResult, crossSectionToSpecMapping]);
+
+  // 验证需求满足情况
+  const validateRequirements = () => {
+    if (!currentResult || !currentResult.solutions) {
+      return [];
+    }
+    
+    const produced: Record<string, number> = {};
+    
+    console.log('🔍 开始验证需求满足情况');
+    console.log('📊 优化结果:', currentResult.solutions);
+    console.log('📋 设计钢材列表:', designSteels);
+    
+    Object.values(currentResult.solutions).forEach(solution => {
+      console.log('🔧 处理解决方案:', solution);
+      if (solution.details && Array.isArray(solution.details)) {
+        solution.details.forEach(detail => {
+          console.log('📝 处理详情:', detail);
+          console.log('🔑 详情中的designId:', detail.designId);
+          console.log('📊 详情中的quantity:', detail.quantity);
+          if (detail.designId && detail.quantity) {
+            if (!produced[detail.designId]) {
+              produced[detail.designId] = 0;
+            }
+            produced[detail.designId] += detail.quantity;
+            console.log(`✅ 累计生产: ${detail.designId} → ${produced[detail.designId]} 件`);
+          } else {
+            console.log('❌ 跳过详情 - designId或quantity为空');
+          }
+        });
+      }
+    });
+
+    console.log('📈 最终生产统计:', produced);
+
+    const validation = designSteels.map(steel => {
+      const producedQty = produced[steel.id] || 0;
+      console.log(`🎯 验证钢材 ${steel.id}: 需求 ${steel.quantity}, 生产 ${producedQty}`);
+      return {
+        ...steel,
+        specification: steel.specification,
+        produced: producedQty,
+        satisfied: producedQty === steel.quantity,
+        difference: producedQty - steel.quantity
+      };
+    });
+
+    console.log('✅ 验证结果:', validation);
+    return validation;
+  };
 
   // 如果没有结果，显示空状态
   if (!currentResult) {
@@ -110,158 +319,10 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
     }
   };
 
-  // 验证需求满足情况
-  const validateRequirements = () => {
-    if (!currentResult || !currentResult.solutions) {
-      return [];
-    }
-    
-    const produced: Record<string, number> = {};
-    
-    Object.values(currentResult.solutions).forEach(solution => {
-      // 确保 details 数组存在
-      if (solution.details && Array.isArray(solution.details)) {
-        solution.details.forEach(detail => {
-          // details 数组中的每个元素是 CuttingDetail 类型，直接包含 designId, length, quantity
-          if (detail.designId && detail.quantity) {
-            if (!produced[detail.designId]) {
-              produced[detail.designId] = 0;
-            }
-            produced[detail.designId] += detail.quantity;
-          }
-        });
-      }
-    });
-
-    const validation = designSteels.map(steel => {
-      const producedQty = produced[steel.id] || 0;
-      return {
-        ...steel,
-        produced: producedQty,
-        satisfied: producedQty === steel.quantity,
-        difference: producedQty - steel.quantity
-      };
-    });
-
-    return validation;
-  };
-
-  // 准备图表数据
-  const prepareChartData = () => {
-    if (!currentResult || !currentResult.solutions) {
-      return { lossRateData: [], pieData: [] };
-    }
-    
-    const crossSections = Object.keys(currentResult.solutions);
-    const lossRateData = crossSections.map(crossSection => {
-      const solution = currentResult.solutions[crossSection];
-      
-      // 计算总材料使用量（只计算模数钢材）
-      const totalMaterial = solution.cuttingPlans?.reduce((sum, plan) => {
-        return sum + (plan.sourceType === 'module' ? plan.sourceLength : 0);
-      }, 0) || 0;
-      
-      const lossRate = totalMaterial > 0 ? (solution.totalWaste / totalMaterial) * 100 : 0;
-      
-      return {
-        crossSection: `截面${crossSection}`,
-        lossRate: parseFloat(lossRate.toFixed(2)),
-        moduleUsed: solution.totalModuleUsed,
-        waste: solution.totalWaste
-      };
-    });
-
-    const pieData = crossSections.map((crossSection, index) => {
-      const colors = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
-      return {
-        name: `截面${crossSection}`,
-        value: currentResult.solutions[crossSection].totalModuleUsed,
-        fill: colors[index % colors.length]
-      };
-    });
-
-    return { lossRateData, pieData };
-  };
-
-  // 准备模数钢材使用统计数据
-  const prepareModuleUsageStats = () => {
-    if (!currentResult || !currentResult.solutions) {
-      return { 
-        sortedStats: [], 
-        crossSectionTotals: {}, 
-        grandTotal: { count: 0, totalLength: 0 } 
-      };
-    }
-    
-    const moduleUsageStats: Record<string, {
-      moduleType: string;
-      crossSection: number;
-      length: number;
-      count: number;
-      totalLength: number;
-    }> = {};
-
-    Object.entries(currentResult.solutions).forEach(([crossSection, solution]) => {
-      // 从设计钢材中获取截面面积
-      const crossSectionValue = parseInt(crossSection);
-      
-      solution.details?.forEach(detail => {
-        if (detail.sourceType === 'module' && detail.moduleType) {
-          const key = `${detail.moduleType}_${crossSection}`;
-          if (!moduleUsageStats[key]) {
-            moduleUsageStats[key] = {
-              moduleType: detail.moduleType,
-              crossSection: crossSectionValue,
-              length: detail.moduleLength || detail.sourceLength,
-              count: 0,
-              totalLength: 0
-            };
-          }
-          moduleUsageStats[key].count += detail.quantity;
-          moduleUsageStats[key].totalLength += (detail.moduleLength || detail.sourceLength) * detail.quantity;
-        }
-      });
-    });
-
-    // 按截面面积和规格排序
-    const sortedStats = Object.values(moduleUsageStats).sort((a, b) => {
-      if (a.crossSection !== b.crossSection) {
-        return a.crossSection - b.crossSection;
-      }
-      return a.length - b.length;
-    });
-
-    // 计算各截面合计
-    const crossSectionTotals: Record<number, { count: number; totalLength: number }> = {};
-    sortedStats.forEach(stat => {
-      if (!crossSectionTotals[stat.crossSection]) {
-        crossSectionTotals[stat.crossSection] = { count: 0, totalLength: 0 };
-      }
-      crossSectionTotals[stat.crossSection].count += stat.count;
-      crossSectionTotals[stat.crossSection].totalLength += stat.totalLength;
-    });
-
-    // 计算总计
-    const grandTotal = sortedStats.reduce((acc, stat) => ({
-      count: acc.count + stat.count,
-      totalLength: acc.totalLength + stat.totalLength
-    }), { count: 0, totalLength: 0 });
-
-    return { sortedStats, crossSectionTotals, grandTotal };
-  };
-
-  // 安全地调用数据准备函数
-  const chartData = currentResult ? prepareChartData() : { lossRateData: [], pieData: [] };
-  const moduleUsageData = currentResult ? prepareModuleUsageStats() : { 
-    sortedStats: [], 
-    crossSectionTotals: {}, 
-    grandTotal: { count: 0, totalLength: 0 } 
-  };
-  
-  const { lossRateData, pieData } = chartData;
-  const { sortedStats, crossSectionTotals, grandTotal } = moduleUsageData;
-  const requirementValidation = currentResult ? validateRequirements() : [];
-  const allSatisfied = requirementValidation.every(v => v.satisfied);
+  const { lossRateData, pieData } = prepareChartData;
+  const { sortedStats, specificationTotals, grandTotal } = prepareModuleUsageStats;
+  const requirementValidation = validateRequirements();
+  const allSatisfied = requirementValidation.every((v: any) => v.satisfied);
 
   // 渲染智能优化结果概览
   const renderSmartResultOverview = () => {
@@ -311,7 +372,7 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
             <Title level={5}>前5名组合对比</Title>
             <Table
               dataSource={smartResult.topCombinations}
-              rowKey={(record, index) => index || 0}
+              rowKey={(record: any, index?: number) => index || 0}
               pagination={false}
               size="small"
               columns={[
@@ -421,31 +482,28 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
   // 模数钢材统计表格列
   const moduleStatsColumns = [
     {
-      title: '模数钢材规格',
-      dataIndex: 'moduleType',
-      key: 'moduleType',
+      title: '钢材规格',
+      dataIndex: 'specification',
+      key: 'specification',
       render: (value: string) => (
-        <Tag color="blue">{value}</Tag>
+        <Tag color="blue" style={{ fontSize: '13px', padding: '4px 8px' }}>{value}</Tag>
       ),
     },
     {
-      title: '截面面积 (mm²)',
-      dataIndex: 'crossSection',
-      key: 'crossSection',
-      render: (value: number) => formatNumber(value, 0),
-    },
-    {
-      title: '长度 (mm)',
+      title: '模数钢材长度 (mm)',
       dataIndex: 'length',
       key: 'length',
-      render: (value: number) => formatNumber(value, 0),
+      render: (value: number | string) => {
+        if (value === '-') return value;
+        return formatNumber(Number(value), 0);
+      },
     },
     {
-      title: '使用数量 (根)',
+      title: '采购根数 (钢材条数)',
       dataIndex: 'count',
       key: 'count',
       render: (value: number) => (
-        <Text strong style={{ color: '#1890ff' }}>{value}</Text>
+        <Text strong style={{ color: '#1890ff' }}>{value} 根</Text>
       ),
     },
     {
@@ -457,11 +515,27 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
       ),
     },
     {
-      title: '备注',
+      title: '截面面积 (mm²)',
+      dataIndex: 'crossSection',
+      key: 'crossSection',
+      render: (value: number | string) => {
+        if (value === '-') return value;
+        return formatNumber(Number(value), 0);
+      },
+    },
+    {
+      title: '采购建议',
       key: 'remark',
-      render: (_: any, record: any) => (
-        <Text type="secondary">单根长度{formatNumber(record.length, 0)}mm</Text>
-      ),
+      render: (_: any, record: any) => {
+        if (record.isTotal || record.isSubtotal) {
+          return '-';
+        }
+        return (
+          <Text type="secondary">
+            需采购 {record.count} 根钢材，每根长度 {formatNumber(record.length, 0)}mm
+          </Text>
+        );
+      },
     }
   ];
 
@@ -473,6 +547,14 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
       key: 'displayId',
       render: (value: string, record: any) => (
         <Tag color="blue">{value || record.id}</Tag>
+      ),
+    },
+    {
+      title: '规格',
+      dataIndex: 'specification',
+      key: 'specification',
+      render: (value: string) => (
+        <Tag color="geekblue">{value}</Tag>
       ),
     },
     {
@@ -596,11 +678,11 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
         <TabPane tab="汇总统计" key="summary">
           <Row gutter={24}>
             <Col xs={24} lg={12}>
-              <Card title="各截面损耗率对比" size="small">
+              <Card title="各规格损耗率对比" size="small">
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={lossRateData}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="crossSection" />
+                    <XAxis dataKey="specification" />
                     <YAxis />
                     <Tooltip />
                     <Legend />
@@ -610,7 +692,7 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
               </Card>
             </Col>
             <Col xs={24} lg={12}>
-              <Card title="模数钢材使用分布" size="small">
+              <Card title="各规格钢材使用分布" size="small">
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
@@ -636,27 +718,64 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
         </TabPane>
 
         <TabPane tab="切割详情" key="details">
-          {Object.entries(currentResult.solutions).map(([crossSection, solution]) => (
-            <Collapse key={crossSection} style={{ marginBottom: 16 }}>
-              <Panel
-                header={
-                  <div>
-                    <Tag color="blue">截面 {crossSection}</Tag>
-                    <Text>损耗率: {((solution.totalWaste / solution.details.reduce((sum, d) => sum + (d.sourceType === 'module' ? d.sourceLength : 0), 0)) * 100).toFixed(2)}%</Text>
+          {(() => {
+            // 按规格重新组织优化结果
+            const specificationResults = regroupOptimizationResultsBySpecification(
+              currentResult.solutions, 
+              crossSectionToSpecMapping
+            );
+            
+            return Object.entries(specificationResults).map(([specification, solution]) => (
+              <Collapse key={specification} style={{ marginBottom: 16 }}>
+                <Panel
+                  header={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                      <Tag color="blue" style={{ fontSize: '14px', padding: '4px 8px' }}>
+                        {specification}
+                      </Tag>
+                      <Text>
+                        截面面积: {solution.crossSection}mm²
+                      </Text>
+                      <Text>
+                        损耗率: {((solution.totalWaste / solution.details.reduce((sum: number, d: any) => sum + (d.sourceType === 'module' ? d.sourceLength : 0), 0)) * 100).toFixed(2)}%
+                      </Text>
+                    </div>
+                  }
+                  key={specification}
+                >
+                  <div style={{ marginBottom: 8 }}>
+                    <Alert
+                      type="info"
+                      message={`${specification} 规格钢材切割方案`}
+                      description={`该规格对应截面面积 ${solution.crossSection}mm²，以下为详细的切割计划和余料利用情况。`}
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                    />
                   </div>
-                }
-                key={crossSection}
-              >
-                <Table
-                  columns={cuttingColumns}
-                  dataSource={solution.cuttingPlans}
-                  rowKey={(record, index) => `${crossSection}-${index}`}
-                  pagination={false}
-                  size="small"
-                />
-              </Panel>
-            </Collapse>
-          ))}
+                  <Table
+                    columns={cuttingColumns}
+                    dataSource={solution.cuttingPlans}
+                    rowKey={(record: any, index?: number) => `${specification}-${index}`}
+                    pagination={false}
+                    size="small"
+                    title={() => (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Text strong>切割计划明细</Text>
+                        <Space>
+                          <Text type="secondary">
+                            总废料: {solution.totalWaste}mm
+                          </Text>
+                          <Text type="secondary">
+                            总余料: {solution.totalRemainder || 0}mm
+                          </Text>
+                        </Space>
+                      </div>
+                    )}
+                  />
+                </Panel>
+              </Collapse>
+            ));
+          })()}
         </TabPane>
 
         <TabPane tab="需求验证" key="requirements">
@@ -732,27 +851,41 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
         </TabPane>
 
         <TabPane tab="模数钢材统计" key="moduleStats">
-          <Card title="模数钢材使用统计" size="small">
+          <Card title="模数钢材采购统计" size="small">
+            <Alert
+              type="info"
+              message="采购指导"
+              description="以下统计按钢材规格分组，显示需要采购的钢材条数（根数）。每根钢材可以切割出多个设计件，采购数量已考虑切割优化。"
+              style={{ marginBottom: 16 }}
+              showIcon
+            />
             <Table
               columns={moduleStatsColumns}
               dataSource={[
-                ...sortedStats,
-                ...Object.entries(crossSectionTotals).map(([crossSection, totals]) => ({
-                  key: `subtotal-${crossSection}`,
-                  moduleType: `截面${crossSection}小计`,
-                  crossSection: parseInt(crossSection),
+                ...sortedStats.map((stat: any) => ({
+                  key: `detail-${stat.specification}-${stat.length}`,
+                  specification: stat.specification,
+                  length: stat.length,
+                  count: stat.count,
+                  totalLength: stat.totalLength,
+                  crossSection: stat.crossSection
+                })),
+                ...Object.entries(specificationTotals).map(([specification, totals]: [string, any]) => ({
+                  key: `subtotal-${specification}`,
+                  specification: `${specification} 小计`,
                   length: '-',
                   count: totals.count,
                   totalLength: totals.totalLength,
+                  crossSection: '-',
                   isSubtotal: true
                 })),
                 {
                   key: 'total',
-                  moduleType: '总计',
-                  crossSection: '-',
+                  specification: '总计',
                   length: '-',
                   count: grandTotal.count,
                   totalLength: grandTotal.totalLength,
+                  crossSection: '-',
                   isTotal: true
                 }
               ]}
@@ -764,19 +897,29 @@ const ResultsViewer: React.FC<Props> = ({ result, smartResult, designSteels, mod
                 if (record.isSubtotal) return 'module-stats-subtotal-row';
                 return '';
               }}
+              title={() => (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text strong>采购清单（按规格分组）</Text>
+                  <Space>
+                    <Text type="secondary">总计: {grandTotal.count}根</Text>
+                    <Text type="secondary">总长: {formatNumber(grandTotal.totalLength, 0)}mm</Text>
+                  </Space>
+                </div>
+              )}
             />
           </Card>
           
           <div style={{ marginTop: 16 }}>
             <Alert
-              type="info"
-              message="统计说明"
+              type="success"
+              message="采购建议"
               description={
                 <ul style={{ margin: 0, paddingLeft: 20 }}>
-                  <li>按截面面积和模数钢材规格分类统计使用量</li>
-                  <li>显示每种规格的使用数量和总长度</li>
-                  <li>提供各截面小计和总计数据</li>
-                  <li>便于采购计划制定和成本核算</li>
+                  <li><strong>按规格采购：</strong>严格按照表格中的规格名称采购，不可替换</li>
+                  <li><strong>长度要求：</strong>每种规格需要的模数钢材长度和数量如表所示</li>
+                  <li><strong>质量要求：</strong>确保采购的钢材截面面积符合设计要求</li>
+                  <li><strong>库存管理：</strong>建议按规格分类存储，便于生产时快速取用</li>
+                  <li><strong>成本控制：</strong>优先采购使用量大的规格，便于批量优惠</li>
                 </ul>
               }
             />

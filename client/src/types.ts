@@ -5,6 +5,9 @@ export interface DesignSteel {
   quantity: number;
   crossSection: number;
   displayId?: string;
+  componentNumber?: string; // 构件编号
+  specification?: string;   // 规格
+  partNumber?: string;      // 部件编号
 }
 
 // 模数钢材类型

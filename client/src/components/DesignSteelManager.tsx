@@ -5,6 +5,7 @@ import {
   Upload,
   Table,
   Form,
+  Input,
   InputNumber,
   Modal,
   Space,
@@ -121,9 +122,10 @@ const DesignSteelManager: React.FC<Props> = ({ designSteels, onChange }) => {
         }
       }
       
-      const steelsWithIds = generateDisplayIds(response.designSteels);
-      onChange(steelsWithIds);
-      message.success(`成功上传 ${steelsWithIds.length} 条设计钢材数据`);
+      // 使用服务器生成的显示ID，不再在客户端重新生成
+      onChange(response.designSteels);
+      message.success(`成功上传 ${response.designSteels.length} 条设计钢材数据`);
+      console.log('📋 使用服务器生成的显示ID:', response.designSteels.slice(0, 5).map(s => ({ id: s.id, displayId: s.displayId })));
       console.log('=== 前端文件上传完成 ===');
     } catch (error: any) {
       console.error('=== 前端上传错误 ===');
@@ -216,6 +218,34 @@ const DesignSteelManager: React.FC<Props> = ({ designSteels, onChange }) => {
       key: 'displayId',
       width: 80,
       sorter: (a: DesignSteel, b: DesignSteel) => (a.displayId || '').localeCompare(b.displayId || ''),
+      render: (value: string) => (
+        <span style={{ 
+          fontWeight: 'bold', 
+          color: '#1890ff',
+          backgroundColor: '#f0f8ff',
+          padding: '2px 6px',
+          borderRadius: '4px',
+          fontSize: '12px'
+        }}>
+          {value || '-'}
+        </span>
+      ),
+    },
+    {
+      title: '构件编号',
+      dataIndex: 'componentNumber',
+      key: 'componentNumber',
+      width: 120,
+      sorter: (a: DesignSteel, b: DesignSteel) => (a.componentNumber || '').localeCompare(b.componentNumber || ''),
+      render: (value: string) => value || '-',
+    },
+    {
+      title: '规格',
+      dataIndex: 'specification',
+      key: 'specification',
+      width: 140,
+      sorter: (a: DesignSteel, b: DesignSteel) => (a.specification || '').localeCompare(b.specification || ''),
+      render: (value: string) => value || '-',
     },
     {
       title: '长度 (mm)',
@@ -240,6 +270,14 @@ const DesignSteelManager: React.FC<Props> = ({ designSteels, onChange }) => {
       width: 140,
       sorter: (a: DesignSteel, b: DesignSteel) => a.crossSection - b.crossSection,
       render: (value: number) => value.toLocaleString(),
+    },
+    {
+      title: '部件编号',
+      dataIndex: 'partNumber',
+      key: 'partNumber',
+      width: 120,
+      sorter: (a: DesignSteel, b: DesignSteel) => (a.partNumber || '').localeCompare(b.partNumber || ''),
+      render: (value: string) => value || '-',
     },
     {
       title: '操作',
@@ -323,7 +361,7 @@ const DesignSteelManager: React.FC<Props> = ({ designSteels, onChange }) => {
               showTotal: (total) => `共 ${total} 条记录`,
             }}
             size="small"
-            scroll={{ x: 600 }}
+            scroll={{ x: 900 }}
           />
         </Panel>
       </Collapse>
@@ -344,6 +382,24 @@ const DesignSteelManager: React.FC<Props> = ({ designSteels, onChange }) => {
           layout="vertical"
           onFinish={handleSave}
         >
+          <Form.Item
+            label="构件编号"
+            name="componentNumber"
+          >
+            <Input
+              placeholder="请输入构件编号（可选）"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="规格"
+            name="specification"
+          >
+            <Input
+              placeholder="请输入规格（可选）"
+            />
+          </Form.Item>
+
           <Form.Item
             label="长度 (mm)"
             name="length"
@@ -389,6 +445,15 @@ const DesignSteelManager: React.FC<Props> = ({ designSteels, onChange }) => {
               placeholder="请输入截面面积"
               min={0.01}
               precision={2}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="部件编号"
+            name="partNumber"
+          >
+            <Input
+              placeholder="请输入部件编号（可选）"
             />
           </Form.Item>
 

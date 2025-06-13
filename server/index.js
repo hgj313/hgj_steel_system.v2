@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs-extra');
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5000;
 
 // 中间件
 app.use(cors());
@@ -215,11 +215,26 @@ class SteelOptimizer {
         const bestModule = this.selectBestModule(demands);
         cuttingPlan = this.cutModule(bestModule, demands, crossSection, moduleId);
         solution.totalModuleUsed++;
+        console.log(`📊 使用模数钢材: ${moduleId}, 当前总数: ${solution.totalModuleUsed}`);
       }
 
       solution.cuttingPlans.push(cuttingPlan);
       solution.totalWaste += cuttingPlan.waste;
-      solution.details.push(cuttingPlan);
+      
+      // 关键修复：将cuts中的每个切割记录作为单独的detail添加
+      cuttingPlan.cuts.forEach(cut => {
+        solution.details.push({
+          sourceType: cuttingPlan.sourceType,
+          sourceId: cuttingPlan.sourceDescription,
+          sourceLength: cuttingPlan.sourceLength,
+          moduleType: cuttingPlan.moduleType,
+          moduleLength: cuttingPlan.moduleLength,
+          designId: cut.designId,
+          length: cut.length,
+          quantity: cut.quantity
+        });
+        console.log(`✅ 添加详情记录: designId=${cut.designId}, quantity=${cut.quantity}`);
+      });
 
       // 更新剩余需求
       cuttingPlan.cuts.forEach(cut => {
@@ -471,6 +486,13 @@ class SteelOptimizer {
         }
       });
     });
+
+    // 调试：检查模数钢材使用统计
+    console.log('🔍 模数钢材使用统计:');
+    Object.entries(results.solutions).forEach(([crossSection, solution]) => {
+      console.log(`截面面积 ${crossSection}: 使用 ${solution.totalModuleUsed} 根模数钢材`);
+    });
+    console.log(`总模数钢材使用量: ${results.totalModuleUsed}`);
 
     // 计算损耗率
     if (results.totalMaterial > 0) {
@@ -730,26 +752,122 @@ let globalSmartOptimizer = null;
 // API路由
 
 // 上传Excel文件解析设计钢材数据
-app.post('/api/upload-design-steels', upload.single('file'), (req, res) => {
+app.post('/api/upload-design-steels', (req, res) => {
   try {
     console.log('=== Excel文件上传开始 ===');
+    console.log('请求类型:', req.headers['content-type']);
+    console.log('请求体存在:', !!req.body);
     
-    if (!req.file) {
-      console.log('错误：没有收到文件');
-      return res.status(400).json({ error: '请选择文件' });
+    let fileBuffer;
+    let filename;
+    
+    // 检查是否是JSON格式的base64数据 (Netlify函数格式)
+    if (req.body && req.body.data && req.body.filename) {
+      console.log('检测到JSON格式上传');
+      filename = req.body.filename;
+      const base64Data = req.body.data;
+      fileBuffer = Buffer.from(base64Data, 'base64');
+      console.log('Base64文件转换:', {
+        filename: filename,
+        originalSize: base64Data.length,
+        bufferSize: fileBuffer.length
+      });
+    } 
+    // 传统multipart文件上传
+    else {
+      console.log('尝试multipart文件上传');
+      // 使用multer中间件
+      upload.single('file')(req, res, (err) => {
+        if (err) {
+          console.error('Multer错误:', err);
+          return res.status(400).json({ error: 'Multer文件处理错误: ' + err.message });
+        }
+        
+        if (!req.file) {
+          console.log('错误：没有收到文件');
+          return res.status(400).json({ error: '请选择文件' });
+        }
+        
+        console.log('文件信息:', {
+          filename: req.file.filename,
+          originalname: req.file.originalname,
+          size: req.file.size,
+          mimetype: req.file.mimetype
+        });
+        
+        filename = req.file.originalname;
+        fileBuffer = fs.readFileSync(req.file.path);
+        
+        // 清理临时文件
+        fs.removeSync(req.file.path);
+        
+        // 继续处理文件
+        processExcelFile(fileBuffer, filename, res);
+      });
+      return; // 等待multer处理完成
     }
-
-    console.log('文件信息:', {
-      filename: req.file.filename,
-      originalname: req.file.originalname,
-      size: req.file.size,
-      mimetype: req.file.mimetype
+    
+    // 直接处理JSON上传的文件
+    if (fileBuffer) {
+      processExcelFile(fileBuffer, filename, res);
+    }
+  } catch (error) {
+    console.error('=== Excel文件上传错误 ===');
+    console.error('错误详情:', error);
+    res.status(500).json({ 
+      error: '文件处理失败: ' + error.message,
+      debugInfo: {
+        errorType: error.name,
+        errorMessage: error.message,
+        errorStack: error.stack
+      }
     });
+  }
+});
 
-    const filePath = req.file.path;
-    console.log('文件路径:', filePath);
+// 生成设计钢材显示编号 (A1, A2, B1, B2...)
+function generateDisplayIds(steels) {
+  // 按截面面积分组
+  const groups = {};
+  steels.forEach(steel => {
+    const crossSection = Math.round(steel.crossSection); // 四舍五入处理浮点数
+    if (!groups[crossSection]) {
+      groups[crossSection] = [];
+    }
+    groups[crossSection].push(steel);
+  });
 
-    const workbook = XLSX.readFile(filePath);
+  // 按截面面积排序
+  const sortedCrossSections = Object.keys(groups).map(Number).sort((a, b) => a - b);
+  
+  const result = [];
+  sortedCrossSections.forEach((crossSection, groupIndex) => {
+    const letter = String.fromCharCode(65 + groupIndex); // A, B, C...
+    const groupSteels = groups[crossSection];
+    
+    // 按长度排序
+    groupSteels.sort((a, b) => a.length - b.length);
+    
+    groupSteels.forEach((steel, itemIndex) => {
+      result.push({
+        ...steel,
+        displayId: `${letter}${itemIndex + 1}` // A1, A2, B1, B2...
+      });
+    });
+  });
+
+  console.log('🎯 生成显示ID完成:', result.slice(0, 5).map(s => ({ id: s.id, displayId: s.displayId, crossSection: s.crossSection, length: s.length })));
+  return result;
+}
+
+// 提取文件处理逻辑为独立函数
+function processExcelFile(fileBuffer, filename, res) {
+  try {
+    console.log('=== 开始处理Excel文件 ===');
+    console.log('文件名:', filename);
+    console.log('文件大小:', fileBuffer.length, '字节');
+
+    const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
     console.log('Excel工作簿信息:', {
       sheetNames: workbook.SheetNames,
       totalSheets: workbook.SheetNames.length
@@ -783,8 +901,10 @@ app.post('/api/upload-design-steels', upload.single('file'), (req, res) => {
         id: `design_${Date.now()}_${index}`,
         length: parseFloat(row['长度'] || row['Length'] || row.length || 0),
         quantity: parseInt(row['数量'] || row['Quantity'] || row.quantity || 0),
-        crossSection: parseFloat(row['截面面积'] || row['CrossSection'] || row.crossSection || 0),
+        crossSection: parseFloat(row['截面面积'] || row['面积'] || row['CrossSection'] || row.crossSection || 0),
+        componentNumber: row['构件编号'] || row['ComponentNumber'] || row.componentNumber || '',
         specification: row['规格'] || row['Specification'] || row.specification || '',
+        partNumber: row['部件编号'] || row['PartNumber'] || row.partNumber || '',
         material: row['材质'] || row['Material'] || row.material || '',
         note: row['备注'] || row['Note'] || row.note || ''
       };
@@ -796,7 +916,9 @@ app.post('/api/upload-design-steels', upload.single('file'), (req, res) => {
           解析结果: steel,
           长度来源: row['长度'] ? '长度' : (row['Length'] ? 'Length' : (row.length ? 'length' : '未找到')),
           数量来源: row['数量'] ? '数量' : (row['Quantity'] ? 'Quantity' : (row.quantity ? 'quantity' : '未找到')),
-          截面面积来源: row['截面面积'] ? '截面面积' : (row['CrossSection'] ? 'CrossSection' : (row.crossSection ? 'crossSection' : '未找到'))
+          截面面积来源: row['截面面积'] ? '截面面积' : (row['CrossSection'] ? 'CrossSection' : (row.crossSection ? 'crossSection' : '未找到')),
+          规格来源: row['规格'] ? '规格' : (row['Specification'] ? 'Specification' : (row.specification ? 'specification' : '未找到')),
+          规格内容: steel.specification
         });
       }
 
@@ -824,18 +946,27 @@ app.post('/api/upload-design-steels', upload.single('file'), (req, res) => {
     };
     console.log('截面面积统计:', crossSectionStats);
 
-    // 清理临时文件
-    fs.removeSync(filePath);
-    console.log('临时文件已清理');
+    // 统计规格情况
+    const specificationStats = {
+      有规格: designSteels.filter(s => s.specification && s.specification.trim()).length,
+      无规格: designSteels.filter(s => !s.specification || !s.specification.trim()).length,
+      唯一规格数: [...new Set(designSteels.map(s => s.specification).filter(s => s && s.trim()))].length,
+      规格列表: [...new Set(designSteels.map(s => s.specification).filter(s => s && s.trim()))].slice(0, 5)
+    };
+    console.log('规格统计:', specificationStats);
 
-    console.log('=== Excel文件上传完成 ===');
+    // 生成显示ID (A1, A2, B1, B2...)
+    const designSteelsWithDisplayIds = generateDisplayIds(designSteels);
+
+    console.log('=== Excel文件处理完成 ===');
 
     res.json({ 
-      designSteels,
+      designSteels: designSteelsWithDisplayIds,
       debugInfo: {
         原始行数: data.length,
-        有效数据: designSteels.length,
+        有效数据: designSteelsWithDisplayIds.length,
         截面面积统计: crossSectionStats,
+        规格统计: specificationStats,
         列名信息: data.length > 0 ? Object.keys(data[0]) : [],
         示例数据: data.slice(0, 2)
       }
@@ -853,7 +984,7 @@ app.post('/api/upload-design-steels', upload.single('file'), (req, res) => {
       }
     });
   }
-});
+}
 
 // 计算优化方案
 app.post('/api/optimize', (req, res) => {
@@ -873,6 +1004,16 @@ app.post('/api/optimize', (req, res) => {
     );
 
     const results = optimizer.optimize();
+    
+    // 调试：检查最终结果中的details
+    console.log('🎯 优化完成，检查最终结果:');
+    Object.entries(results.solutions).forEach(([crossSection, solution]) => {
+      console.log(`📊 截面面积 ${crossSection} 的详情数量:`, solution.details?.length || 0);
+      if (solution.details && solution.details.length > 0) {
+        console.log(`📝 前3个详情示例:`, solution.details.slice(0, 3));
+      }
+    });
+    
     res.json(results);
   } catch (error) {
     console.error('优化计算错误:', error);

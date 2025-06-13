@@ -245,7 +245,16 @@ class SteelOptimizer {
     solution.cuttingPlans.push(cuttingPlan);
     
     // 添加详情信息
+    console.log(`🔧 余料切割 - cuts数组:`, cuts);
     cuts.forEach(cut => {
+      console.log(`📝 添加余料详情:`, {
+        sourceType: 'remainder',
+        sourceId: cuttingPlan.sourceId,
+        sourceLength: remainderCombination.totalLength,
+        designId: cut.designId,
+        length: cut.length,
+        quantity: cut.quantity
+      });
       solution.details.push({
         sourceType: 'remainder',
         sourceId: cuttingPlan.sourceId,
@@ -338,7 +347,18 @@ class SteelOptimizer {
     solution.cuttingPlans.push(cuttingPlan);
     
     // 添加详情信息
+    console.log(`🔧 模数切割 - cuts数组:`, cuts);
     cuts.forEach(cut => {
+      console.log(`📝 添加模数详情:`, {
+        sourceType: 'module',
+        sourceId: moduleId,
+        sourceLength: module.length,
+        moduleType: module.specification || '标准模数',
+        moduleLength: module.length,
+        designId: cut.designId,
+        length: cut.length,
+        quantity: cut.quantity
+      });
       solution.details.push({
         sourceType: 'module',
         sourceId: moduleId,
@@ -380,6 +400,15 @@ exports.handler = async (event, context) => {
     );
 
     const result = optimizer.optimize();
+
+    // 调试：检查最终结果中的details
+    console.log('🎯 优化完成，检查最终结果:');
+    Object.entries(result.solutions).forEach(([crossSection, solution]) => {
+      console.log(`📊 截面面积 ${crossSection} 的详情数量:`, solution.details?.length || 0);
+      if (solution.details && solution.details.length > 0) {
+        console.log(`📝 前3个详情示例:`, solution.details.slice(0, 3));
+      }
+    });
 
     return {
       statusCode: 200,

@@ -13,7 +13,7 @@ import {
 
 // 创建axios实例
 const api = axios.create({
-  baseURL: process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:5001/api',
+  baseURL: process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:5000/api',
   timeout: 300000, // 5分钟超时
 });
 
@@ -162,7 +162,7 @@ export const downloadFile = (response: any) => {
     }, 100);
   } else if (response.downloadUrl || response.fileName) {
     // 传统下载URL方式（本地开发）
-    const baseURL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5001';
+    const baseURL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000';
     const fullUrl = response.downloadUrl?.startsWith('/') ? `${baseURL}${response.downloadUrl}` : response.downloadUrl;
     
     const link = document.createElement('a');

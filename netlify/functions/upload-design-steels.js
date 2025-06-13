@@ -207,8 +207,10 @@ exports.handler = async (event, context) => {
         id: `design_${Date.now()}_${index}`,
         length: parseFloat(row[lengthColumn] || row['长度'] || row['Length'] || row.length || 0),
         quantity: parseInt(row[quantityColumn] || row['数量'] || row['Quantity'] || row.quantity || 0),
-        crossSection: parseFloat(row[crossSectionColumn] || row['截面面积'] || row['CrossSection'] || row.crossSection || 0),
+        crossSection: parseFloat(row[crossSectionColumn] || row['截面面积'] || row['面积'] || row['CrossSection'] || row.crossSection || 0),
+        componentNumber: row['构件编号'] || row['ComponentNumber'] || row.componentNumber || '',
         specification: row['规格'] || row['Specification'] || row.specification || '',
+        partNumber: row['部件编号'] || row['PartNumber'] || row.partNumber || '',
         material: row['材质'] || row['Material'] || row.material || '',
         note: row['备注'] || row['Note'] || row.note || ''
       };
