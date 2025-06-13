@@ -108,6 +108,67 @@ class SteelOptimizer {
     });
   }
 
+  // 处理过剩余料
+  processExcessRemainders(solution, demands, crossSection) {
+    const pool = this.remainderPools[crossSection] || [];
+    
+    if (pool.length > 0) {
+      // 获取当前截面面积下所有设计钢材的最短长度
+      const allDesignSteels = this.designSteels.filter(steel => 
+        Math.round(steel.crossSection) === crossSection
+      );
+      const minRequiredLength = allDesignSteels.length > 0 ? 
+        Math.min(...allDesignSteels.map(steel => steel.length)) : 0;
+      
+      const unusableRemainders = [];
+      const usableRemainders = [];
+      
+      // 检查每个余料是否可用
+      pool.forEach(remainder => {
+        // 如果余料长度小于最短设计钢材长度，则无法使用
+        if (remainder.length < minRequiredLength) {
+          // 虽然长度大于废料阈值，但无法切割任何设计钢材，标记为废料
+          remainder.isExcess = true;
+          remainder.isUnusable = true; // 新增标记：不可用余料
+          solution.totalWaste += remainder.length;
+          unusableRemainders.push(remainder);
+          
+          console.log(`🗑️ 余料 ${remainder.id} (${remainder.length}mm) 无法切割任何设计钢材 (最短需求: ${minRequiredLength}mm)，计入废料`);
+        } else {
+          // 检查是否还有未满足的需求可以用这个余料切割
+          const canCutSomething = demands.some(demand => 
+            demand.remaining > 0 && remainder.length >= demand.length
+          );
+          
+          if (!canCutSomething) {
+            // 所有需求已满足，余料标记为过剩并计入废料
+            remainder.isExcess = true;
+            solution.totalWaste += remainder.length;
+            unusableRemainders.push(remainder);
+            
+            console.log(`✅ 余料 ${remainder.id} (${remainder.length}mm) 所有需求已满足，计入废料`);
+          } else {
+            usableRemainders.push(remainder);
+          }
+        }
+      });
+      
+      // 添加不可用余料信息到切割计划
+      if (unusableRemainders.length > 0 && solution.details.length > 0) {
+        const lastDetail = solution.details[solution.details.length - 1];
+        if (!lastDetail.excessRemainders) {
+          lastDetail.excessRemainders = [];
+        }
+        lastDetail.excessRemainders.push(...unusableRemainders);
+      }
+      
+      // 更新余料池，只保留可用的余料
+      this.remainderPools[crossSection] = usableRemainders;
+      
+      console.log(`📊 余料处理结果 - 截面面积 ${crossSection}: 不可用 ${unusableRemainders.length} 个, 可用 ${usableRemainders.length} 个`);
+    }
+  }
+
   optimize() {
     const groups = this.groupByCrossSection();
     const solutions = {};
@@ -187,6 +248,9 @@ class SteelOptimizer {
         solution.totalModuleUsed++;
       }
     }
+
+    // 处理剩余的不可用余料
+    this.processExcessRemainders(solution, demands, crossSection);
 
     return solution;
   }
