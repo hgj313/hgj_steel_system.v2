@@ -46,7 +46,7 @@ exports.handler = async (event, context) => {
     });
 
     const purchaseData = [];
-    purchaseData.push(['规格', '截面面积(mm²)', '长度(mm)', '采购数量(根)', '总长度(mm)']);
+    purchaseData.push(['钢材规格', '模数钢材长度 (mm)', '采购数量 (钢材条数)', '总长度 (mm)', '截面面积 (mm²)', '采购建议']);
 
     // 按截面面积和长度排序
     const sortedStats = Object.values(moduleStats).sort((a, b) => {
@@ -59,11 +59,37 @@ exports.handler = async (event, context) => {
     sortedStats.forEach(stat => {
       purchaseData.push([
         stat.moduleType,
-        stat.crossSection,
         stat.length,
-        stat.count,
-        stat.totalLength
+        `${stat.count} 根`,
+        stat.totalLength,
+        stat.crossSection,
+        `需采购 ${stat.count} 根钢材，每根长度 ${stat.length.toLocaleString()}mm`
       ]);
+    });
+
+    // 按规格分组添加小计
+    const specGroups = {};
+    sortedStats.forEach(stat => {
+      const specKey = stat.moduleType.replace(/\d+$/, ''); // 去掉末尾数字得到规格组
+      if (!specGroups[specKey]) {
+        specGroups[specKey] = { count: 0, totalLength: 0, crossSection: stat.crossSection };
+      }
+      specGroups[specKey].count += stat.count;
+      specGroups[specKey].totalLength += stat.totalLength;
+    });
+
+    // 添加规格小计
+    Object.entries(specGroups).forEach(([spec, totals]) => {
+      if (Object.keys(specGroups).length > 1) { // 只有多个规格时才显示小计
+        purchaseData.push([
+          `${spec} 小计`,
+          '-',
+          `${totals.count} 根`,
+          totals.totalLength,
+          totals.crossSection,
+          ''
+        ]);
+      }
     });
 
     // 添加总计行
@@ -75,9 +101,10 @@ exports.handler = async (event, context) => {
     purchaseData.push([
       '总计',
       '-',
+      `${grandTotal.count} 根`,
+      grandTotal.totalLength,
       '-',
-      grandTotal.count,
-      grandTotal.totalLength
+      ''
     ]);
 
     const purchaseSheet = XLSX.utils.aoa_to_sheet(purchaseData);
