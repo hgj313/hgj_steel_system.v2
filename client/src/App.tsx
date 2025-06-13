@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, message, Button, Modal, Typography, Alert, Space, Card, Row, Col } from 'antd';
 import { 
-  BugOutlined, 
   NotificationOutlined, 
   FileExcelOutlined, 
   BulbOutlined, 
@@ -30,7 +29,7 @@ const SYSTEM_ANNOUNCEMENTS = [
   {
     id: 'welcome-2025',
     title: '🎊 欢迎使用钢材采购损耗率估算系统',
-    content: '🏢 开发部门：技术部\n👨‍💻 参与人员：黄传凯、黄国俊、杨玉麟\n🏷️ 版本：V2.0.0\n\n🌟 感谢您选择我们的专业系统！\n💪 让我们一起提升钢材采购效率！',
+    content: '🏢 开发部门：技术部\n👨‍💻 参与人员：黄传凯、黄国俊、杨玉麟\n🏷️ 版本：V2.0.0\n\n🌟 感谢您的使用！\n💪 让我们一起提升钢材采购效率！',
     type: 'info' as const,
     createdAt: '2024-06-13',
     priority: 1
@@ -52,15 +51,16 @@ const App: React.FC = () => {
   const [smartOptimizationResult, setSmartOptimizationResult] = useState<SmartOptimizationResult | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizationMode, setOptimizationMode] = useState<OptimizationMode>('manual');
-  const [debugVisible, setDebugVisible] = useState(false);
 
   // 公告系统状态
   const [announcementVisible, setAnnouncementVisible] = useState(false);
   const [dismissedAnnouncements, setDismissedAnnouncements] = useState<string[]>([]);
   const [autoOpenAttempted, setAutoOpenAttempted] = useState(false);
 
-  // 检查是否有新公告需要显示
+  // 检查是否有新公告需要显示 - 主要自动打开机制
   useEffect(() => {
+    console.log('🎯 Auto-open check: Starting announcement check...');
+    
     try {
       const dismissed = localStorage.getItem('dismissed-announcements');
       let dismissedIds: string[] = [];
@@ -88,12 +88,22 @@ const App: React.FC = () => {
         announcement => !dismissedIds.includes(announcement.id)
       );
       
+      console.log('🎯 Auto-open check:', {
+        hasNewAnnouncements,
+        autoOpenAttempted,
+        dismissedIds,
+        totalAnnouncements: SYSTEM_ANNOUNCEMENTS.length
+      });
+      
       if (hasNewAnnouncements && !autoOpenAttempted) {
+        console.log('🚀 Auto-opening announcements in 1.5s...');
         setAutoOpenAttempted(true);
+        
         // 延迟显示公告，让页面先加载完成
         const timer = setTimeout(() => {
+          console.log('✅ Auto-opening announcements now!');
           setAnnouncementVisible(true);
-        }, 1500); // 增加延迟时间确保页面完全加载
+        }, 1500);
         
         // 清理定时器
         return () => clearTimeout(timer);
@@ -104,11 +114,13 @@ const App: React.FC = () => {
       setAutoOpenAttempted(true);
       setAnnouncementVisible(true);
     }
-  }, []);
+  }, [autoOpenAttempted]);
 
   // 备用自动打开机制 - 确保公告在页面加载后显示
   useEffect(() => {
     if (!autoOpenAttempted) {
+      console.log('🔄 Fallback auto-open mechanism activated...');
+      
       const fallbackTimer = setTimeout(() => {
         try {
           const dismissed = localStorage.getItem('dismissed-announcements');
@@ -126,11 +138,15 @@ const App: React.FC = () => {
             announcement => !dismissedIds.includes(announcement.id)
           );
           
+          console.log('🔄 Fallback check:', { hasNewAnnouncements, dismissedIds });
+          
           if (hasNewAnnouncements) {
+            console.log('🚀 Fallback auto-opening announcements!');
             setAutoOpenAttempted(true);
             setAnnouncementVisible(true);
           }
         } catch (error) {
+          console.error('Fallback auto-open error:', error);
           // 如果解析失败，直接显示公告
           setAutoOpenAttempted(true);
           setAnnouncementVisible(true);
@@ -140,6 +156,35 @@ const App: React.FC = () => {
       return () => clearTimeout(fallbackTimer);
     }
   }, [autoOpenAttempted]);
+
+  // 额外的保险机制 - 如果前面都失败了，3秒后强制检查
+  useEffect(() => {
+    const insuranceTimer = setTimeout(() => {
+      if (!announcementVisible && !autoOpenAttempted) {
+        console.log('🛡️ Insurance mechanism: Force checking announcements...');
+        try {
+          const dismissed = localStorage.getItem('dismissed-announcements');
+          const dismissedIds: string[] = dismissed ? JSON.parse(dismissed) : [];
+          
+          const hasNewAnnouncements = SYSTEM_ANNOUNCEMENTS.some(
+            announcement => !dismissedIds.includes(announcement.id)
+          );
+          
+          if (hasNewAnnouncements) {
+            console.log('🛡️ Insurance mechanism: Opening announcements!');
+            setAutoOpenAttempted(true);
+            setAnnouncementVisible(true);
+          }
+        } catch (error) {
+          console.log('🛡️ Insurance mechanism: Opening announcements due to error!');
+          setAutoOpenAttempted(true);
+          setAnnouncementVisible(true);
+        }
+      }
+    }, 3000);
+    
+    return () => clearTimeout(insuranceTimer);
+  }, [announcementVisible, autoOpenAttempted]);
 
   // 关闭公告并记住用户选择
   const handleCloseAnnouncement = () => {
@@ -155,6 +200,8 @@ const App: React.FC = () => {
   const handleShowAnnouncement = () => {
     setAnnouncementVisible(true);
   };
+
+
 
 
 
@@ -440,76 +487,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Debug Button - Hidden */}
-        {false && (
-          <Button
-            type="primary"
-            icon={<BugOutlined />}
-            onClick={() => setDebugVisible(true)}
-            style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 1000 }}
-          >
-            调试工具
-          </Button>
-        )}
 
-        {/* Debug Modal */}
-        <Modal
-          title="系统调试说明"
-          open={debugVisible}
-          onCancel={() => setDebugVisible(false)}
-          width={700}
-          footer={
-            <Button onClick={() => setDebugVisible(false)}>
-              关闭
-            </Button>
-          }
-        >
-          <div>
-            <Title level={4}>🔍 如何查看系统调试信息</Title>
-            
-            <div style={{ marginBottom: 20 }}>
-              <Title level={5}>1. 打开浏览器开发者工具</Title>
-              <Text>
-                按 <Text code>F12</Text> 或右键页面选择 <Text code>检查</Text>，然后点击 <Text code>Console</Text> 标签
-              </Text>
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <Title level={5}>2. 查看系统日志</Title>
-              <Text>
-                系统会在控制台显示详细的运行信息，包括：
-              </Text>
-              <ul style={{ marginTop: 8 }}>
-                <li>📁 Excel文件上传和解析过程</li>
-                <li>📊 数据转换和验证结果</li>
-                <li>⚠️ 截面面积读取问题诊断</li>
-                <li>🚨 错误详情和堆栈追踪</li>
-              </ul>
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <Title level={5}>3. 上传文件时的自动提示</Title>
-              <Text>
-                如果截面面积读取失败，系统会：
-              </Text>
-              <ul style={{ marginTop: 8 }}>
-                <li>🔔 自动弹出警告消息</li>
-                <li>📋 显示详细的调试信息窗口</li>
-                <li>💡 提供具体的修复建议</li>
-              </ul>
-            </div>
-
-            <div style={{ padding: 12, backgroundColor: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 4 }}>
-              <Title level={5} style={{ color: '#389e0d', marginBottom: 8 }}>💡 调试技巧</Title>
-              <Text>
-                • 上传Excel文件前先打开控制台<br/>
-                • 注意查看以 <Text code>=== Excel文件上传开始 ===</Text> 开头的日志<br/>
-                • 如果出现错误，重点关注红色的错误信息<br/>
-                • 检查 <Text code>检测到的列名</Text> 是否包含截面面积相关字段
-              </Text>
-            </div>
-          </div>
-        </Modal>
       </Content>
 
       {/* Apple-style Announcement Modal */}
