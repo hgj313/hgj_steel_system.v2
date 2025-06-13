@@ -182,15 +182,7 @@ function generatePDFHTML(results, designSteels, moduleSteels) {
     return a.length - b.length;
   });
 
-  // 计算规格小计
-  const specificationTotals = {};
-  sortedModuleStats.forEach(stat => {
-    if (!specificationTotals[stat.specification]) {
-      specificationTotals[stat.specification] = { count: 0, totalLength: 0 };
-    }
-    specificationTotals[stat.specification].count += stat.count;
-    specificationTotals[stat.specification].totalLength += stat.totalLength;
-  });
+
 
   // 计算总计
   const grandTotal = sortedModuleStats.reduce((acc, stat) => ({
@@ -215,7 +207,7 @@ function generatePDFHTML(results, designSteels, moduleSteels) {
     th { background-color: #f5f5f5; font-weight: bold; }
     .summary { background-color: #f9f9f9; padding: 15px; border-radius: 5px; }
     .tag { background-color: #1890ff; color: white; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
-    .subtotal-row { background-color: #f5f5f5; font-weight: bold; }
+
     .total-row { background-color: #e6f7ff; font-weight: bold; color: #1890ff; }
     @media print {
       body { margin: 10px; }
@@ -264,18 +256,7 @@ function generatePDFHTML(results, designSteels, moduleSteels) {
             <td>需采购 ${stat.count} 根钢材，每根长度 ${stat.length.toLocaleString()}mm</td>
           </tr>
         `).join('')}
-        ${Object.keys(specificationTotals).length > 1 ? 
-          Object.entries(specificationTotals).map(([specification, totals]) => `
-            <tr class="subtotal-row">
-              <td>${specification} 小计</td>
-              <td>-</td>
-              <td><strong>${totals.count} 根</strong></td>
-              <td><strong>${totals.totalLength.toLocaleString()}</strong></td>
-              <td>-</td>
-              <td>-</td>
-            </tr>
-          `).join('') : ''
-        }
+
         <tr class="total-row">
           <td>总计</td>
           <td>-</td>

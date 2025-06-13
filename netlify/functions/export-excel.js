@@ -115,29 +115,7 @@ exports.handler = async (event, context) => {
       ]);
     });
 
-    // 按规格分组添加小计
-    const specificationTotals = {};
-    sortedStats.forEach(stat => {
-      if (!specificationTotals[stat.specification]) {
-        specificationTotals[stat.specification] = { count: 0, totalLength: 0 };
-      }
-      specificationTotals[stat.specification].count += stat.count;
-      specificationTotals[stat.specification].totalLength += stat.totalLength;
-    });
-
-    // 添加规格小计
-    Object.entries(specificationTotals).forEach(([specification, totals]) => {
-      if (Object.keys(specificationTotals).length > 1) { // 只有多个规格时才显示小计
-        purchaseData.push([
-          `${specification} 小计`,
-          '-',
-          `${totals.count} 根`,
-          totals.totalLength,
-          '-',
-          ''
-        ]);
-      }
-    });
+    // 移除小计逻辑，直接显示总计
 
     // 添加总计行
     const grandTotal = sortedStats.reduce((acc, stat) => ({
