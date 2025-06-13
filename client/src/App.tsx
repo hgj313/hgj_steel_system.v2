@@ -38,7 +38,7 @@ const SYSTEM_ANNOUNCEMENTS = [
   {
     id: 'update-notice',
     title: '系统功能更新通知',
-    content: '✨ 新功能：Excel导出现在显示准确的钢材规格名称\n📊 优化：\n1、移除了导出文件中的小计行，使报告更简洁\n2、新增规格数据代替截面信息分组使结果更清晰\n3、算法优化进一步获取更接近全局最优解的优化结果\n4、📋 增强：PDF报告新增模数钢材统计详情\n在在使用时如果需求不匹配请多次尝试优化直达需求被完全满足\n\n如果你在使用过程中遇到问题请将问题发送至邮箱：2486575431@qq.com',
+    content: '✨ 新功能：Excel导出现在显示准确的钢材规格名称\n📊 优化：\n1、移除了导出文件中的小计行，使报告更简洁\n2、新增规格数据代替截面信息分组使结果更清晰\n3、算法优化进一步获取更接近全局最优解的优化结果\n4、📋 增强：PDF报告新增模数钢材统计详情\n温馨提示：在在使用时如果需求不匹配请多次尝试优化直达需求被完全满足\n\n如果你在使用过程中遇到问题请将问题发送至邮箱：2486575431@qq.com',
     type: 'success' as const,
     createdAt: '2024-06-13',
     priority: 2
@@ -57,25 +57,89 @@ const App: React.FC = () => {
   // 公告系统状态
   const [announcementVisible, setAnnouncementVisible] = useState(false);
   const [dismissedAnnouncements, setDismissedAnnouncements] = useState<string[]>([]);
+  const [autoOpenAttempted, setAutoOpenAttempted] = useState(false);
 
   // 检查是否有新公告需要显示
   useEffect(() => {
-    const dismissed = localStorage.getItem('dismissed-announcements');
-    const dismissedIds = dismissed ? JSON.parse(dismissed) : [];
-    setDismissedAnnouncements(dismissedIds);
-    
-    // 检查是否有未查看的公告
-    const hasNewAnnouncements = SYSTEM_ANNOUNCEMENTS.some(
-      announcement => !dismissedIds.includes(announcement.id)
-    );
-    
-    if (hasNewAnnouncements) {
-      // 延迟显示公告，让页面先加载完成
-      setTimeout(() => {
-        setAnnouncementVisible(true);
-      }, 1000);
+    try {
+      const dismissed = localStorage.getItem('dismissed-announcements');
+      let dismissedIds: string[] = [];
+      
+      if (dismissed) {
+        try {
+          const parsed = JSON.parse(dismissed);
+          // 确保 dismissedIds 是数组
+          if (Array.isArray(parsed)) {
+            dismissedIds = parsed;
+          } else {
+            dismissedIds = [];
+          }
+        } catch (parseError) {
+          console.warn('Failed to parse dismissed announcements, resetting:', parseError);
+          dismissedIds = [];
+          localStorage.removeItem('dismissed-announcements');
+        }
+      }
+      
+      setDismissedAnnouncements(dismissedIds);
+      
+      // 检查是否有未查看的公告
+      const hasNewAnnouncements = SYSTEM_ANNOUNCEMENTS.some(
+        announcement => !dismissedIds.includes(announcement.id)
+      );
+      
+      if (hasNewAnnouncements && !autoOpenAttempted) {
+        setAutoOpenAttempted(true);
+        // 延迟显示公告，让页面先加载完成
+        const timer = setTimeout(() => {
+          setAnnouncementVisible(true);
+        }, 1500); // 增加延迟时间确保页面完全加载
+        
+        // 清理定时器
+        return () => clearTimeout(timer);
+      }
+    } catch (error) {
+      console.error('Error in announcement auto-open logic:', error);
+      // 如果出错，直接显示公告
+      setAutoOpenAttempted(true);
+      setAnnouncementVisible(true);
     }
   }, []);
+
+  // 备用自动打开机制 - 确保公告在页面加载后显示
+  useEffect(() => {
+    if (!autoOpenAttempted) {
+      const fallbackTimer = setTimeout(() => {
+        try {
+          const dismissed = localStorage.getItem('dismissed-announcements');
+          let dismissedIds: string[] = [];
+          if (dismissed) {
+            const parsed = JSON.parse(dismissed);
+            if (Array.isArray(parsed)) {
+              dismissedIds = parsed;
+            } else {
+              dismissedIds = [];
+            }
+          }
+          
+          const hasNewAnnouncements = SYSTEM_ANNOUNCEMENTS.some(
+            announcement => !dismissedIds.includes(announcement.id)
+          );
+          
+          if (hasNewAnnouncements) {
+            setAutoOpenAttempted(true);
+            setAnnouncementVisible(true);
+          }
+        } catch (error) {
+          // 如果解析失败，直接显示公告
+          setAutoOpenAttempted(true);
+          setAnnouncementVisible(true);
+        }
+      }, 2000); // 2秒后的备用检查
+      
+      return () => clearTimeout(fallbackTimer);
+    }
+  }, [autoOpenAttempted]);
 
   // 关闭公告并记住用户选择
   const handleCloseAnnouncement = () => {
@@ -91,6 +155,8 @@ const App: React.FC = () => {
   const handleShowAnnouncement = () => {
     setAnnouncementVisible(true);
   };
+
+
 
   const handleOptimizationComplete = (result: OptimizationResult) => {
     setOptimizationResult(result);
@@ -213,6 +279,7 @@ const App: React.FC = () => {
                 </span>
               )}
             </Button>
+
           </Space>
         </div>
       </Header>
