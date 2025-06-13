@@ -1,17 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Typography, Card, Row, Col, Divider, Button, Space, Alert, Modal, Input, message, Tag } from 'antd';
-import { FileExcelOutlined, RobotOutlined, SettingOutlined, BulbOutlined, NotificationOutlined, PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import DesignSteelUploader from './components/DesignSteelUploader';
+import { Layout, message, Button, Modal, Typography, Alert, Space, Input, Tag } from 'antd';
+import { BugOutlined, NotificationOutlined, EditOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
+import DesignSteelManager from './components/DesignSteelManager';
 import ModuleSteelManager from './components/ModuleSteelManager';
 import OptimizationPanel from './components/OptimizationPanel';
 import ResultsViewer from './components/ResultsViewer';
-import SmartOptimizationPanel from './components/SmartOptimizationPanel';
-import { DesignSteel, ModuleSteel, OptimizationResult, OptimizationMode, SmartOptimizationResult } from './types';
+import { 
+  DesignSteel, 
+  ModuleSteel, 
+  OptimizationResult, 
+  OptimizationMode,
+  SmartOptimizationResult 
+} from './types';
 import './App.css';
 
-const { Header, Content } = Layout;
-const { Title, Text } = Typography;
+const { Text, Title } = Typography;
 const { TextArea } = Input;
+const { Header, Content } = Layout;
 
 // 公告接口
 interface Announcement {
@@ -25,65 +30,74 @@ interface Announcement {
 const App: React.FC = () => {
   const [designSteels, setDesignSteels] = useState<DesignSteel[]>([]);
   const [moduleSteels, setModuleSteels] = useState<ModuleSteel[]>([]);
-  const [result, setResult] = useState<OptimizationResult | null>(null);
-  const [smartResult, setSmartResult] = useState<SmartOptimizationResult | null>(null);
-  const [optimizationMode, setOptimizationMode] = useState<OptimizationMode>('normal');
-  
-  // 公告相关状态
+  const [optimizationResult, setOptimizationResult] = useState<OptimizationResult | null>(null);
+  const [smartOptimizationResult, setSmartOptimizationResult] = useState<SmartOptimizationResult | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizationMode, setOptimizationMode] = useState<OptimizationMode>('manual');
+  const [debugVisible, setDebugVisible] = useState(false);
+
+  // 公告系统状态
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementModalVisible, setAnnouncementModalVisible] = useState(false);
   const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null);
-  const [announcementForm, setAnnouncementForm] = useState({
+  const [announcementForm, setAnnouncementForm] = useState<{
+    title: string;
+    content: string;
+    type: 'info' | 'success' | 'warning' | 'error';
+  }>({
     title: '',
     content: '',
-    type: 'info' as 'info' | 'success' | 'warning' | 'error'
+    type: 'info'
   });
 
-  // 从localStorage加载公告
+  // 加载公告
   useEffect(() => {
-    const savedAnnouncements = localStorage.getItem('steel-optimization-announcements');
+    const savedAnnouncements = localStorage.getItem('steel-system-announcements');
     if (savedAnnouncements) {
       try {
         setAnnouncements(JSON.parse(savedAnnouncements));
       } catch (error) {
-        console.error('加载公告失败:', error);
+        console.error('Failed to load announcements:', error);
       }
     }
   }, []);
 
-  // 保存公告到localStorage
+  // 保存公告
   const saveAnnouncements = (newAnnouncements: Announcement[]) => {
     setAnnouncements(newAnnouncements);
-    localStorage.setItem('steel-optimization-announcements', JSON.stringify(newAnnouncements));
+    localStorage.setItem('steel-system-announcements', JSON.stringify(newAnnouncements));
   };
 
-  // 添加或编辑公告
+  // 保存公告
   const handleSaveAnnouncement = () => {
     if (!announcementForm.title.trim() || !announcementForm.content.trim()) {
-      message.error('请填写公告标题和内容');
+      message.error('请填写完整的公告信息');
       return;
     }
 
+    const now = new Date().toLocaleString('zh-CN');
+    
     if (editingAnnouncement) {
       // 编辑现有公告
       const updatedAnnouncements = announcements.map(ann => 
         ann.id === editingAnnouncement.id 
-          ? { ...ann, ...announcementForm }
+          ? { ...ann, ...announcementForm, createdAt: `${now} (已编辑)` }
           : ann
       );
       saveAnnouncements(updatedAnnouncements);
-      message.success('公告更新成功');
+      message.success('公告已更新');
     } else {
       // 添加新公告
       const newAnnouncement: Announcement = {
         id: Date.now().toString(),
         ...announcementForm,
-        createdAt: new Date().toLocaleString('zh-CN')
+        createdAt: now
       };
       saveAnnouncements([newAnnouncement, ...announcements]);
-      message.success('公告添加成功');
+      message.success('公告已添加');
     }
 
+    // 重置表单
     setAnnouncementModalVisible(false);
     setEditingAnnouncement(null);
     setAnnouncementForm({ title: '', content: '', type: 'info' });
@@ -91,15 +105,9 @@ const App: React.FC = () => {
 
   // 删除公告
   const handleDeleteAnnouncement = (id: string) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除这条公告吗？',
-      onOk: () => {
-        const updatedAnnouncements = announcements.filter(ann => ann.id !== id);
-        saveAnnouncements(updatedAnnouncements);
-        message.success('公告删除成功');
-      }
-    });
+    const updatedAnnouncements = announcements.filter(ann => ann.id !== id);
+    saveAnnouncements(updatedAnnouncements);
+    message.success('公告已删除');
   };
 
   // 编辑公告
@@ -113,39 +121,49 @@ const App: React.FC = () => {
     setAnnouncementModalVisible(true);
   };
 
-  // 添加新公告
+  // 添加公告
   const handleAddAnnouncement = () => {
     setEditingAnnouncement(null);
     setAnnouncementForm({ title: '', content: '', type: 'info' });
     setAnnouncementModalVisible(true);
   };
 
-  const handleDesignSteelsUploaded = (steels: DesignSteel[]) => {
-    setDesignSteels(steels);
-    setResult(null);
-    setSmartResult(null);
+  const handleOptimizationComplete = (result: OptimizationResult) => {
+    setOptimizationResult(result);
+    setSmartOptimizationResult(null); // 清除智能模式结果
+    setIsOptimizing(false);
+    message.success('优化计算完成！');
   };
 
-  const handleModuleSteelsChange = (steels: ModuleSteel[]) => {
-    setModuleSteels(steels);
-    setResult(null);
-    setSmartResult(null);
+  const handleSmartOptimizationComplete = (result: SmartOptimizationResult) => {
+    setSmartOptimizationResult(result);
+    setOptimizationResult(null); // 清除手动模式结果
+    setIsOptimizing(false);
+    if (result.isCancelled) {
+      message.warning('智能优化已取消');
+    } else {
+      message.success('智能优化完成！');
+    }
   };
 
-  const handleOptimizationComplete = (optimizationResult: OptimizationResult) => {
-    setResult(optimizationResult);
-    setSmartResult(null);
+  const handleOptimizationStart = () => {
+    setIsOptimizing(true);
+    // 根据模式清除对应的结果
+    if (optimizationMode === 'manual') {
+      setOptimizationResult(null);
+    } else {
+      setSmartOptimizationResult(null);
+    }
   };
 
-  const handleSmartOptimizationComplete = (smartOptimizationResult: SmartOptimizationResult) => {
-    setSmartResult(smartOptimizationResult);
-    setResult(smartOptimizationResult.bestCombination?.result || null);
+  const handleOptimizationError = (error: string) => {
+    setIsOptimizing(false);
+    message.error(`优化计算失败: ${error}`);
   };
 
   const handleModeChange = (mode: OptimizationMode) => {
     setOptimizationMode(mode);
-    setResult(null);
-    setSmartResult(null);
+    // 切换模式时不清除结果，允许对比
   };
 
   return (
@@ -269,85 +287,112 @@ const App: React.FC = () => {
         </Modal>
 
         {/* 原有内容 */}
-        <Row gutter={[24, 24]}>
-          <Col xs={24} lg={8}>
-            <Card 
-              title={
-                <Space>
-                  <FileExcelOutlined style={{ color: '#52c41a' }} />
-                  <span>设计钢材数据</span>
-                </Space>
-              }
-              style={{ height: '100%' }}
-            >
-              <DesignSteelUploader onSteelsUploaded={handleDesignSteelsUploaded} />
-              {designSteels.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <Text type="success">
-                    ✓ 已加载 {designSteels.length} 条设计钢材数据
-                  </Text>
-                </div>
-              )}
-            </Card>
-          </Col>
-
-          <Col xs={24} lg={8}>
-            <Card 
-              title={
-                <Space>
-                  <BulbOutlined style={{ color: '#1890ff' }} />
-                  <span>模数钢材配置</span>
-                </Space>
-              }
-              style={{ height: '100%' }}
-            >
-              <ModuleSteelManager 
-                moduleSteels={moduleSteels}
-                onModuleSteelsChange={handleModuleSteelsChange}
-              />
-            </Card>
-          </Col>
-
-          <Col xs={24} lg={8}>
-            <Card 
-              title={
-                <Space>
-                  <RobotOutlined style={{ color: '#722ed1' }} />
-                  <span>优化计算</span>
-                </Space>
-              }
-              style={{ height: '100%' }}
-            >
-              {optimizationMode === 'normal' ? (
-                <OptimizationPanel
-                  designSteels={designSteels}
-                  moduleSteels={moduleSteels}
-                  onOptimizationComplete={handleOptimizationComplete}
-                  onModeChange={handleModeChange}
-                />
-              ) : (
-                <SmartOptimizationPanel
-                  designSteels={designSteels}
-                  onOptimizationComplete={handleSmartOptimizationComplete}
-                  onModeChange={handleModeChange}
-                />
-              )}
-            </Card>
-          </Col>
-        </Row>
-
-        {(result || smartResult) && (
-          <>
-            <Divider style={{ margin: '32px 0' }} />
-            <ResultsViewer 
-              result={result}
-              smartResult={smartResult}
+        <div className="app-container">
+          <DesignSteelManager
+            designSteels={designSteels}
+            onChange={setDesignSteels}
+          />
+          
+          <ModuleSteelManager
+            moduleSteels={moduleSteels}
+            onChange={setModuleSteels}
+            optimizationMode={optimizationMode}
+            smartResult={smartOptimizationResult}
+          />
+          
+          <OptimizationPanel
+            designSteels={designSteels}
+            moduleSteels={moduleSteels}
+            onOptimizationStart={handleOptimizationStart}
+            onOptimizationComplete={handleOptimizationComplete}
+            onSmartOptimizationComplete={handleSmartOptimizationComplete}
+            onOptimizationError={handleOptimizationError}
+            isOptimizing={isOptimizing}
+            optimizationMode={optimizationMode}
+            onModeChange={handleModeChange}
+          />
+          
+          {(optimizationResult || smartOptimizationResult) && (
+            <ResultsViewer
+              result={optimizationResult}
+              smartResult={smartOptimizationResult}
               designSteels={designSteels}
               moduleSteels={moduleSteels}
               optimizationMode={optimizationMode}
             />
-          </>
+          )}
+        </div>
+        
+        {/* 调试工具按钮 - 已隐藏 */}
+        {false && (
+          <Button
+            type="primary"
+            icon={<BugOutlined />}
+            onClick={() => setDebugVisible(true)}
+            style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 1000 }}
+          >
+            调试工具
+          </Button>
         )}
+
+        {/* 调试说明弹窗 */}
+        <Modal
+          title="系统调试说明"
+          open={debugVisible}
+          onCancel={() => setDebugVisible(false)}
+          width={700}
+          footer={
+            <Button onClick={() => setDebugVisible(false)}>
+              关闭
+            </Button>
+          }
+        >
+          <div>
+            <Title level={4}>🔍 如何查看系统调试信息</Title>
+            
+            <div style={{ marginBottom: 20 }}>
+              <Title level={5}>1. 打开浏览器开发者工具</Title>
+              <Text>
+                按 <Text code>F12</Text> 或右键页面选择 <Text code>检查</Text>，然后点击 <Text code>Console</Text> 标签
+              </Text>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <Title level={5}>2. 查看系统日志</Title>
+              <Text>
+                系统会在控制台显示详细的运行信息，包括：
+              </Text>
+              <ul style={{ marginTop: 8 }}>
+                <li>📁 Excel文件上传和解析过程</li>
+                <li>📊 数据转换和验证结果</li>
+                <li>⚠️ 截面面积读取问题诊断</li>
+                <li>🚨 错误详情和堆栈追踪</li>
+              </ul>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <Title level={5}>3. 上传文件时的自动提示</Title>
+              <Text>
+                如果截面面积读取失败，系统会：
+              </Text>
+              <ul style={{ marginTop: 8 }}>
+                <li>🔔 自动弹出警告消息</li>
+                <li>📋 显示详细的调试信息窗口</li>
+                <li>💡 提供具体的修复建议</li>
+              </ul>
+            </div>
+
+            <div style={{ padding: 12, backgroundColor: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 4 }}>
+              <Title level={5} style={{ color: '#389e0d', marginBottom: 8 }}>💡 调试技巧</Title>
+              <Text>
+                • 上传Excel文件前先打开控制台<br/>
+                • 注意查看以 <Text code>=== Excel文件上传开始 ===</Text> 开头的日志<br/>
+                • 如果出现错误，重点关注红色的错误信息<br/>
+                • 检查 <Text code>检测到的列名</Text> 是否包含截面面积相关字段
+              </Text>
+            </div>
+          </div>
+        </Modal>
       </Content>
     </Layout>
   );
