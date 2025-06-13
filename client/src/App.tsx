@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, message, Button, Modal, Typography, Alert, Space, Input, Tag } from 'antd';
-import { BugOutlined, NotificationOutlined, EditOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
+import { Layout, message, Button, Modal, Typography, Alert, Space, Card, Row, Col } from 'antd';
+import { 
+  BugOutlined, 
+  NotificationOutlined, 
+  FileExcelOutlined, 
+  BulbOutlined, 
+  RobotOutlined,
+  CloseOutlined,
+  SettingOutlined
+} from '@ant-design/icons';
 import DesignSteelManager from './components/DesignSteelManager';
 import ModuleSteelManager from './components/ModuleSteelManager';
 import OptimizationPanel from './components/OptimizationPanel';
@@ -15,17 +23,27 @@ import {
 import './App.css';
 
 const { Text, Title } = Typography;
-const { TextArea } = Input;
 const { Header, Content } = Layout;
 
-// 公告接口
-interface Announcement {
-  id: string;
-  title: string;
-  content: string;
-  type: 'info' | 'success' | 'warning' | 'error';
-  createdAt: string;
-}
+// 系统公告 - 由管理员在代码中定义
+const SYSTEM_ANNOUNCEMENTS = [
+  {
+    id: 'welcome-2024',
+    title: '欢迎使用钢材采购损耗率估算系统',
+    content: '本系统已完成重大更新，新增Excel规格导出、PDF报告生成等功能。如有问题请联系技术支持。',
+    type: 'info' as const,
+    createdAt: '2024-01-15',
+    priority: 1
+  },
+  {
+    id: 'update-notice',
+    title: '系统功能更新通知',
+    content: '✨ 新功能：Excel导出现在显示准确的钢材规格名称\n📊 优化：移除了导出文件中的小计行，使报告更简洁\n📋 增强：PDF报告新增模数钢材统计详情',
+    type: 'success' as const,
+    createdAt: '2024-01-14',
+    priority: 2
+  }
+];
 
 const App: React.FC = () => {
   const [designSteels, setDesignSteels] = useState<DesignSteel[]>([]);
@@ -37,107 +55,53 @@ const App: React.FC = () => {
   const [debugVisible, setDebugVisible] = useState(false);
 
   // 公告系统状态
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [announcementModalVisible, setAnnouncementModalVisible] = useState(false);
-  const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null);
-  const [announcementForm, setAnnouncementForm] = useState<{
-    title: string;
-    content: string;
-    type: 'info' | 'success' | 'warning' | 'error';
-  }>({
-    title: '',
-    content: '',
-    type: 'info'
-  });
+  const [announcementVisible, setAnnouncementVisible] = useState(false);
+  const [dismissedAnnouncements, setDismissedAnnouncements] = useState<string[]>([]);
 
-  // 加载公告
+  // 检查是否有新公告需要显示
   useEffect(() => {
-    const savedAnnouncements = localStorage.getItem('steel-system-announcements');
-    if (savedAnnouncements) {
-      try {
-        setAnnouncements(JSON.parse(savedAnnouncements));
-      } catch (error) {
-        console.error('Failed to load announcements:', error);
-      }
+    const dismissed = localStorage.getItem('dismissed-announcements');
+    const dismissedIds = dismissed ? JSON.parse(dismissed) : [];
+    setDismissedAnnouncements(dismissedIds);
+    
+    // 检查是否有未查看的公告
+    const hasNewAnnouncements = SYSTEM_ANNOUNCEMENTS.some(
+      announcement => !dismissedIds.includes(announcement.id)
+    );
+    
+    if (hasNewAnnouncements) {
+      // 延迟显示公告，让页面先加载完成
+      setTimeout(() => {
+        setAnnouncementVisible(true);
+      }, 1000);
     }
   }, []);
 
-  // 保存公告
-  const saveAnnouncements = (newAnnouncements: Announcement[]) => {
-    setAnnouncements(newAnnouncements);
-    localStorage.setItem('steel-system-announcements', JSON.stringify(newAnnouncements));
-  };
-
-  // 保存公告
-  const handleSaveAnnouncement = () => {
-    if (!announcementForm.title.trim() || !announcementForm.content.trim()) {
-      message.error('请填写完整的公告信息');
-      return;
-    }
-
-    const now = new Date().toLocaleString('zh-CN');
+  // 关闭公告并记住用户选择
+  const handleCloseAnnouncement = () => {
+    setAnnouncementVisible(false);
     
-    if (editingAnnouncement) {
-      // 编辑现有公告
-      const updatedAnnouncements = announcements.map(ann => 
-        ann.id === editingAnnouncement.id 
-          ? { ...ann, ...announcementForm, createdAt: `${now} (已编辑)` }
-          : ann
-      );
-      saveAnnouncements(updatedAnnouncements);
-      message.success('公告已更新');
-    } else {
-      // 添加新公告
-      const newAnnouncement: Announcement = {
-        id: Date.now().toString(),
-        ...announcementForm,
-        createdAt: now
-      };
-      saveAnnouncements([newAnnouncement, ...announcements]);
-      message.success('公告已添加');
-    }
-
-    // 重置表单
-    setAnnouncementModalVisible(false);
-    setEditingAnnouncement(null);
-    setAnnouncementForm({ title: '', content: '', type: 'info' });
+    // 标记当前所有公告为已查看
+    const allAnnouncementIds = SYSTEM_ANNOUNCEMENTS.map(a => a.id);
+    setDismissedAnnouncements(allAnnouncementIds);
+    localStorage.setItem('dismissed-announcements', JSON.stringify(allAnnouncementIds));
   };
 
-  // 删除公告
-  const handleDeleteAnnouncement = (id: string) => {
-    const updatedAnnouncements = announcements.filter(ann => ann.id !== id);
-    saveAnnouncements(updatedAnnouncements);
-    message.success('公告已删除');
-  };
-
-  // 编辑公告
-  const handleEditAnnouncement = (announcement: Announcement) => {
-    setEditingAnnouncement(announcement);
-    setAnnouncementForm({
-      title: announcement.title,
-      content: announcement.content,
-      type: announcement.type
-    });
-    setAnnouncementModalVisible(true);
-  };
-
-  // 添加公告
-  const handleAddAnnouncement = () => {
-    setEditingAnnouncement(null);
-    setAnnouncementForm({ title: '', content: '', type: 'info' });
-    setAnnouncementModalVisible(true);
+  // 显示公告
+  const handleShowAnnouncement = () => {
+    setAnnouncementVisible(true);
   };
 
   const handleOptimizationComplete = (result: OptimizationResult) => {
     setOptimizationResult(result);
-    setSmartOptimizationResult(null); // 清除智能模式结果
+    setSmartOptimizationResult(null);
     setIsOptimizing(false);
     message.success('优化计算完成！');
   };
 
   const handleSmartOptimizationComplete = (result: SmartOptimizationResult) => {
     setSmartOptimizationResult(result);
-    setOptimizationResult(null); // 清除手动模式结果
+    setOptimizationResult(null);
     setIsOptimizing(false);
     if (result.isCancelled) {
       message.warning('智能优化已取消');
@@ -148,7 +112,6 @@ const App: React.FC = () => {
 
   const handleOptimizationStart = () => {
     setIsOptimizing(true);
-    // 根据模式清除对应的结果
     if (optimizationMode === 'manual') {
       setOptimizationResult(null);
     } else {
@@ -163,156 +126,243 @@ const App: React.FC = () => {
 
   const handleModeChange = (mode: OptimizationMode) => {
     setOptimizationMode(mode);
-    // 切换模式时不清除结果，允许对比
   };
 
+  // 获取未查看的公告
+  const unviewedAnnouncements = SYSTEM_ANNOUNCEMENTS.filter(
+    announcement => !dismissedAnnouncements.includes(announcement.id)
+  ).sort((a, b) => a.priority - b.priority);
+
   return (
-    <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
+    <Layout style={{ 
+      minHeight: '100vh', 
+      background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+    }}>
+      {/* Apple-style Header */}
       <Header style={{ 
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
-        padding: '0 24px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+        background: 'rgba(255, 255, 255, 0.8)',
+        backdropFilter: 'blur(20px)',
+        borderBottom: '1px solid rgba(0, 0, 0, 0.1)',
+        padding: '0 32px',
+        height: '64px',
+        position: 'sticky',
+        top: 0,
+        zIndex: 1000,
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          height: '100%'
+        }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <SettingOutlined style={{ fontSize: '24px', color: 'white', marginRight: '12px' }} />
-            <Title level={3} style={{ color: 'white', margin: 0 }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: '16px'
+            }}>
+              <SettingOutlined style={{ fontSize: '18px', color: 'white' }} />
+            </div>
+            <Title level={3} style={{ 
+              margin: 0, 
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              fontWeight: 600
+            }}>
               钢材采购损耗率估算系统
             </Title>
           </div>
           <Space>
             <Button 
-              type="primary" 
-              ghost 
+              type="text"
               icon={<NotificationOutlined />}
-              onClick={handleAddAnnouncement}
+              onClick={handleShowAnnouncement}
+              style={{
+                borderRadius: '20px',
+                height: '40px',
+                padding: '0 16px',
+                background: unviewedAnnouncements.length > 0 ? 'rgba(24, 144, 255, 0.1)' : 'transparent',
+                border: unviewedAnnouncements.length > 0 ? '1px solid rgba(24, 144, 255, 0.3)' : 'none',
+                color: unviewedAnnouncements.length > 0 ? '#1890ff' : '#666'
+              }}
             >
-              管理公告
+              系统公告
+              {unviewedAnnouncements.length > 0 && (
+                <span style={{
+                  marginLeft: '8px',
+                  background: '#ff4d4f',
+                  color: 'white',
+                  borderRadius: '10px',
+                  padding: '2px 6px',
+                  fontSize: '12px',
+                  minWidth: '18px',
+                  height: '18px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  {unviewedAnnouncements.length}
+                </span>
+              )}
             </Button>
           </Space>
         </div>
       </Header>
 
-      <Content style={{ padding: '24px' }}>
-        {/* 公告区域 */}
-        {announcements.length > 0 && (
-          <div style={{ marginBottom: '24px' }}>
-            {announcements.map(announcement => (
-              <Alert
-                key={announcement.id}
-                type={announcement.type}
-                message={
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <strong>{announcement.title}</strong>
-                      <div style={{ marginTop: '4px', fontSize: '12px', opacity: 0.8 }}>
-                        {announcement.createdAt}
-                      </div>
-                    </div>
-                    <Space>
-                      <Button 
-                        type="text" 
-                        size="small" 
-                        icon={<EditOutlined />}
-                        onClick={() => handleEditAnnouncement(announcement)}
-                      />
-                      <Button 
-                        type="text" 
-                        size="small" 
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => handleDeleteAnnouncement(announcement.id)}
-                      />
-                    </Space>
+      <Content style={{ padding: '32px' }}>
+        {/* Apple-style Cards Layout */}
+        <Row gutter={[24, 24]}>
+          <Col xs={24} lg={8}>
+            <Card 
+              title={
+                <Space>
+                  <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '6px',
+                    background: 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <FileExcelOutlined style={{ fontSize: '14px', color: 'white' }} />
                   </div>
-                }
-                description={announcement.content}
-                style={{ marginBottom: '8px' }}
-                showIcon
-                closable
-                onClose={() => handleDeleteAnnouncement(announcement.id)}
+                  <span style={{ fontWeight: 600 }}>设计钢材数据</span>
+                </Space>
+              }
+              style={{ 
+                height: '100%',
+                borderRadius: '16px',
+                border: '1px solid rgba(0, 0, 0, 0.06)',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+                background: 'rgba(255, 255, 255, 0.9)',
+                backdropFilter: 'blur(10px)'
+              }}
+              headStyle={{
+                borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
+                borderRadius: '16px 16px 0 0'
+              }}
+              bodyStyle={{ padding: '24px' }}
+            >
+              <DesignSteelManager
+                designSteels={designSteels}
+                onChange={setDesignSteels}
               />
-            ))}
-          </div>
-        )}
+              {designSteels.length > 0 && (
+                <div style={{ 
+                  marginTop: 16,
+                  padding: '12px',
+                  background: 'rgba(82, 196, 26, 0.1)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(82, 196, 26, 0.2)'
+                }}>
+                  <Text style={{ color: '#52c41a', fontWeight: 500 }}>
+                    ✓ 已加载 {designSteels.length} 条设计钢材数据
+                  </Text>
+                </div>
+              )}
+            </Card>
+          </Col>
 
-        {/* 公告管理模态框 */}
-        <Modal
-          title={editingAnnouncement ? '编辑公告' : '添加公告'}
-          open={announcementModalVisible}
-          onOk={handleSaveAnnouncement}
-          onCancel={() => {
-            setAnnouncementModalVisible(false);
-            setEditingAnnouncement(null);
-            setAnnouncementForm({ title: '', content: '', type: 'info' });
-          }}
-          okText="保存"
-          cancelText="取消"
-        >
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>公告标题</label>
-            <Input
-              placeholder="请输入公告标题"
-              value={announcementForm.title}
-              onChange={(e) => setAnnouncementForm({ ...announcementForm, title: e.target.value })}
-            />
-          </div>
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>公告类型</label>
-            <Space>
-              {(['info', 'success', 'warning', 'error'] as const).map(type => (
-                <Tag
-                  key={type}
-                  color={type === 'info' ? 'blue' : type === 'success' ? 'green' : type === 'warning' ? 'orange' : 'red'}
-                  style={{ 
-                    cursor: 'pointer',
-                    border: announcementForm.type === type ? '2px solid #1890ff' : '1px solid #d9d9d9'
-                  }}
-                  onClick={() => setAnnouncementForm({ ...announcementForm, type })}
-                >
-                  {type === 'info' ? '信息' : type === 'success' ? '成功' : type === 'warning' ? '警告' : '错误'}
-                </Tag>
-              ))}
-            </Space>
-          </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>公告内容</label>
-            <TextArea
-              placeholder="请输入公告内容"
-              rows={4}
-              value={announcementForm.content}
-              onChange={(e) => setAnnouncementForm({ ...announcementForm, content: e.target.value })}
-            />
-          </div>
-        </Modal>
+          <Col xs={24} lg={8}>
+            <Card 
+              title={
+                <Space>
+                  <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '6px',
+                    background: 'linear-gradient(135deg, #1890ff 0%, #40a9ff 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <BulbOutlined style={{ fontSize: '14px', color: 'white' }} />
+                  </div>
+                  <span style={{ fontWeight: 600 }}>模数钢材配置</span>
+                </Space>
+              }
+              style={{ 
+                height: '100%',
+                borderRadius: '16px',
+                border: '1px solid rgba(0, 0, 0, 0.06)',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+                background: 'rgba(255, 255, 255, 0.9)',
+                backdropFilter: 'blur(10px)'
+              }}
+              headStyle={{
+                borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
+                borderRadius: '16px 16px 0 0'
+              }}
+              bodyStyle={{ padding: '24px' }}
+            >
+              <ModuleSteelManager 
+                moduleSteels={moduleSteels}
+                onChange={setModuleSteels}
+                optimizationMode={optimizationMode}
+                smartResult={smartOptimizationResult}
+              />
+            </Card>
+          </Col>
 
-        {/* 原有内容 */}
-        <div className="app-container">
-          <DesignSteelManager
-            designSteels={designSteels}
-            onChange={setDesignSteels}
-          />
-          
-          <ModuleSteelManager
-            moduleSteels={moduleSteels}
-            onChange={setModuleSteels}
-            optimizationMode={optimizationMode}
-            smartResult={smartOptimizationResult}
-          />
-          
-          <OptimizationPanel
-            designSteels={designSteels}
-            moduleSteels={moduleSteels}
-            onOptimizationStart={handleOptimizationStart}
-            onOptimizationComplete={handleOptimizationComplete}
-            onSmartOptimizationComplete={handleSmartOptimizationComplete}
-            onOptimizationError={handleOptimizationError}
-            isOptimizing={isOptimizing}
-            optimizationMode={optimizationMode}
-            onModeChange={handleModeChange}
-          />
-          
-          {(optimizationResult || smartOptimizationResult) && (
+          <Col xs={24} lg={8}>
+            <Card 
+              title={
+                <Space>
+                  <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '6px',
+                    background: 'linear-gradient(135deg, #722ed1 0%, #9254de 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <RobotOutlined style={{ fontSize: '14px', color: 'white' }} />
+                  </div>
+                  <span style={{ fontWeight: 600 }}>优化计算</span>
+                </Space>
+              }
+              style={{ 
+                height: '100%',
+                borderRadius: '16px',
+                border: '1px solid rgba(0, 0, 0, 0.06)',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+                background: 'rgba(255, 255, 255, 0.9)',
+                backdropFilter: 'blur(10px)'
+              }}
+              headStyle={{
+                borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
+                borderRadius: '16px 16px 0 0'
+              }}
+              bodyStyle={{ padding: '24px' }}
+            >
+              <OptimizationPanel
+                designSteels={designSteels}
+                moduleSteels={moduleSteels}
+                onOptimizationStart={handleOptimizationStart}
+                onOptimizationComplete={handleOptimizationComplete}
+                onSmartOptimizationComplete={handleSmartOptimizationComplete}
+                onOptimizationError={handleOptimizationError}
+                isOptimizing={isOptimizing}
+                optimizationMode={optimizationMode}
+                onModeChange={handleModeChange}
+              />
+            </Card>
+          </Col>
+        </Row>
+        
+        {/* Results Section */}
+        {(optimizationResult || smartOptimizationResult) && (
+          <div style={{ marginTop: '24px' }}>
             <ResultsViewer
               result={optimizationResult}
               smartResult={smartOptimizationResult}
@@ -320,10 +370,10 @@ const App: React.FC = () => {
               moduleSteels={moduleSteels}
               optimizationMode={optimizationMode}
             />
-          )}
-        </div>
-        
-        {/* 调试工具按钮 - 已隐藏 */}
+          </div>
+        )}
+
+        {/* Debug Button - Hidden */}
         {false && (
           <Button
             type="primary"
@@ -335,7 +385,7 @@ const App: React.FC = () => {
           </Button>
         )}
 
-        {/* 调试说明弹窗 */}
+        {/* Debug Modal */}
         <Modal
           title="系统调试说明"
           open={debugVisible}
@@ -394,6 +444,113 @@ const App: React.FC = () => {
           </div>
         </Modal>
       </Content>
+
+      {/* Apple-style Announcement Modal */}
+      <Modal
+        title={null}
+        open={announcementVisible}
+        onCancel={handleCloseAnnouncement}
+        footer={null}
+        width={600}
+        centered
+        closeIcon={null}
+        style={{
+          borderRadius: '16px',
+          overflow: 'hidden'
+        }}
+        bodyStyle={{
+          padding: 0,
+          borderRadius: '16px'
+        }}
+      >
+        <div style={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          padding: '24px',
+          color: 'white',
+          position: 'relative'
+        }}>
+          <Button
+            type="text"
+            icon={<CloseOutlined />}
+            onClick={handleCloseAnnouncement}
+            style={{
+              position: 'absolute',
+              top: '16px',
+              right: '16px',
+              color: 'white',
+              border: 'none',
+              background: 'rgba(255, 255, 255, 0.2)',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+            <NotificationOutlined style={{ fontSize: '24px', marginRight: '12px' }} />
+            <Title level={3} style={{ color: 'white', margin: 0 }}>
+              系统公告
+            </Title>
+          </div>
+          <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '16px' }}>
+            欢迎使用钢材采购损耗率估算系统
+          </Text>
+        </div>
+        
+        <div style={{ padding: '24px', maxHeight: '400px', overflowY: 'auto' }}>
+          {SYSTEM_ANNOUNCEMENTS.map((announcement, index) => (
+            <Alert
+              key={announcement.id}
+              type={announcement.type}
+              message={
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: '8px' }}>
+                    {announcement.title}
+                  </div>
+                  <div style={{ fontSize: '14px', opacity: 0.8, marginBottom: '8px' }}>
+                    发布时间: {announcement.createdAt}
+                  </div>
+                </div>
+              }
+              description={
+                <div style={{ whiteSpace: 'pre-line', lineHeight: '1.6' }}>
+                  {announcement.content}
+                </div>
+              }
+              style={{ 
+                marginBottom: index < SYSTEM_ANNOUNCEMENTS.length - 1 ? '16px' : 0,
+                borderRadius: '8px',
+                border: '1px solid rgba(0, 0, 0, 0.06)'
+              }}
+              showIcon
+            />
+          ))}
+        </div>
+        
+        <div style={{
+          padding: '16px 24px',
+          borderTop: '1px solid rgba(0, 0, 0, 0.06)',
+          background: 'rgba(0, 0, 0, 0.02)',
+          display: 'flex',
+          justifyContent: 'flex-end'
+        }}>
+          <Button
+            type="primary"
+            onClick={handleCloseAnnouncement}
+            style={{
+              borderRadius: '8px',
+              height: '40px',
+              padding: '0 24px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              border: 'none'
+            }}
+          >
+            我知道了
+          </Button>
+        </div>
+      </Modal>
     </Layout>
   );
 };
