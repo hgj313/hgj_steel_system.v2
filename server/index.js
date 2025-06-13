@@ -1330,53 +1330,99 @@ app.get('/api/smart-optimize/result', (req, res) => {
   }
 });
 
+// 建立截面面积到规格的映射
+function buildCrossSectionToSpecMapping(designSteels) {
+  const mapping = {};
+  if (designSteels && Array.isArray(designSteels)) {
+    designSteels.forEach(steel => {
+      if (steel.crossSection && steel.specification) {
+        const crossSectionValue = Math.round(parseFloat(steel.crossSection));
+        mapping[crossSectionValue] = steel.specification;
+      }
+    });
+  }
+  return mapping;
+}
+
 // 导出结果为Excel
 app.post('/api/export/excel', (req, res) => {
   try {
-    const { results, moduleSteels } = req.body;
+    const { results, moduleSteels, designSteels } = req.body;
+    
+    // 建立规格映射
+    const crossSectionToSpecMapping = buildCrossSectionToSpecMapping(designSteels);
     
     // 创建工作簿
     const wb = XLSX.utils.book_new();
     
-    // 创建模数钢材采购清单工作表 - 按实际使用的模数钢材统计
-    const moduleStats = {};
+    // 创建模数钢材采购清单工作表 - 使用正确的规格信息
+    const moduleUsageStats = {};
+    
     Object.entries(results.solutions).forEach(([crossSection, solution]) => {
-      if (solution.cuttingPlans && solution.cuttingPlans.length > 0) {
-        solution.cuttingPlans.forEach(plan => {
-          if (plan.sourceType === 'module') {
-            const moduleType = plan.moduleType || `模数钢材`;
-            const length = plan.moduleLength || plan.sourceLength;
-            const key = `${moduleType}_${length}_${crossSection}`;
+      const crossSectionValue = Math.round(parseFloat(crossSection));
+      const specification = crossSectionToSpecMapping[crossSectionValue] || `未知规格(${crossSectionValue}mm²)`;
+      
+      // Count unique module steel bars by sourceId (not detail records)
+      const uniqueModuleBars = {};
+      
+      if (solution.details && Array.isArray(solution.details)) {
+        solution.details.forEach(detail => {
+          // Only count raw module steel bars, ignore remainders/remnants
+          if (detail.sourceType === 'module' && detail.sourceId) {
+            const length = detail.moduleLength || detail.sourceLength;
+            const sourceId = detail.sourceId;
             
-            if (!moduleStats[key]) {
-              moduleStats[key] = {
-                moduleType: moduleType,
-                crossSection: parseInt(crossSection),
+            // Each unique sourceId represents one physical steel bar
+            if (!uniqueModuleBars[sourceId]) {
+              uniqueModuleBars[sourceId] = {
                 length: length,
-                count: 0,
-                totalLength: 0
+                sourceId: sourceId
               };
             }
-            moduleStats[key].count += 1; // 每个cutting plan代表使用了1根模数钢材
-            moduleStats[key].totalLength += length;
           }
         });
       }
+      
+      // Group by length and count unique bars
+      const moduleBarCounts = {};
+      Object.values(uniqueModuleBars).forEach(bar => {
+        if (!moduleBarCounts[bar.length]) {
+          moduleBarCounts[bar.length] = 0;
+        }
+        moduleBarCounts[bar.length] += 1;
+      });
+      
+      // Add to stats
+      Object.entries(moduleBarCounts).forEach(([lengthStr, count]) => {
+        const length = parseInt(lengthStr);
+        const key = `${specification}_${length}`;
+        if (!moduleUsageStats[key]) {
+          moduleUsageStats[key] = {
+            specification: specification,
+            crossSection: crossSectionValue,
+            length: length,
+            count: 0,
+            totalLength: 0
+          };
+        }
+        moduleUsageStats[key].count += count;
+        moduleUsageStats[key].totalLength += length * count;
+      });
     });
 
     const purchaseData = [['钢材规格', '模数钢材长度 (mm)', '采购数量 (钢材条数)', '总长度 (mm)', '截面面积 (mm²)', '采购建议']];
     
-    // 按截面面积和规格排序
-    const sortedStats = Object.values(moduleStats).sort((a, b) => {
-      if (a.crossSection !== b.crossSection) {
-        return a.crossSection - b.crossSection;
+    // 按规格和长度排序
+    const sortedStats = Object.values(moduleUsageStats).sort((a, b) => {
+      if (a.specification !== b.specification) {
+        return a.specification.localeCompare(b.specification);
       }
       return a.length - b.length;
     });
     
     sortedStats.forEach(stat => {
       purchaseData.push([
-        stat.moduleType,
+        stat.specification,
         stat.length,
         `${stat.count} 根`,
         stat.totalLength,
@@ -1386,25 +1432,24 @@ app.post('/api/export/excel', (req, res) => {
     });
 
     // 按规格分组添加小计
-    const specGroups = {};
+    const specificationTotals = {};
     sortedStats.forEach(stat => {
-      const specKey = stat.moduleType.replace(/\d+$/, ''); // 去掉末尾数字得到规格组
-      if (!specGroups[specKey]) {
-        specGroups[specKey] = { count: 0, totalLength: 0, crossSection: stat.crossSection };
+      if (!specificationTotals[stat.specification]) {
+        specificationTotals[stat.specification] = { count: 0, totalLength: 0 };
       }
-      specGroups[specKey].count += stat.count;
-      specGroups[specKey].totalLength += stat.totalLength;
+      specificationTotals[stat.specification].count += stat.count;
+      specificationTotals[stat.specification].totalLength += stat.totalLength;
     });
 
     // 添加规格小计
-    Object.entries(specGroups).forEach(([spec, totals]) => {
-      if (Object.keys(specGroups).length > 1) { // 只有多个规格时才显示小计
+    Object.entries(specificationTotals).forEach(([specification, totals]) => {
+      if (Object.keys(specificationTotals).length > 1) { // 只有多个规格时才显示小计
         purchaseData.push([
-          `${spec} 小计`,
+          `${specification} 小计`,
           '-',
           `${totals.count} 根`,
           totals.totalLength,
-          totals.crossSection,
+          '-',
           ''
         ]);
       }
@@ -1487,12 +1532,14 @@ app.post('/api/export/pdf', (req, res) => {
 
 // 生成PDF内容的HTML
 function generatePDFHTML(results, designSteels) {
-  const now = new Date();
-  const reportTime = now.toLocaleString('zh-CN');
+  const safeResults = results || {};
+  const safeDesignSteels = designSteels || [];
+  
+  // 建立规格映射
+  const crossSectionToSpecMapping = buildCrossSectionToSpecMapping(safeDesignSteels);
   
   // 按规格分组设计钢材
   const groupedBySpec = {};
-  const safeDesignSteels = designSteels || [];
   safeDesignSteels.forEach(steel => {
     const spec = steel.specification || `截面${steel.crossSection}mm²`;
     if (!groupedBySpec[spec]) {
@@ -1516,100 +1563,175 @@ function generatePDFHTML(results, designSteels) {
       });
   });
 
+  // 计算模数钢材使用统计
+  const moduleUsageStats = {};
+  
+  if (safeResults.solutions) {
+    Object.entries(safeResults.solutions).forEach(([crossSection, solution]) => {
+      const crossSectionValue = Math.round(parseFloat(crossSection));
+      const specification = crossSectionToSpecMapping[crossSectionValue] || `未知规格(${crossSectionValue}mm²)`;
+      
+      // Count unique module steel bars by sourceId (not detail records)
+      const uniqueModuleBars = {};
+      
+      if (solution.details && Array.isArray(solution.details)) {
+        solution.details.forEach(detail => {
+          // Only count raw module steel bars, ignore remainders/remnants
+          if (detail.sourceType === 'module' && detail.sourceId) {
+            const length = detail.moduleLength || detail.sourceLength;
+            const sourceId = detail.sourceId;
+            
+            // Each unique sourceId represents one physical steel bar
+            if (!uniqueModuleBars[sourceId]) {
+              uniqueModuleBars[sourceId] = {
+                length: length,
+                sourceId: sourceId
+              };
+            }
+          }
+        });
+      }
+      
+      // Group by length and count unique bars
+      const moduleBarCounts = {};
+      Object.values(uniqueModuleBars).forEach(bar => {
+        if (!moduleBarCounts[bar.length]) {
+          moduleBarCounts[bar.length] = 0;
+        }
+        moduleBarCounts[bar.length] += 1;
+      });
+      
+      // Add to stats
+      Object.entries(moduleBarCounts).forEach(([lengthStr, count]) => {
+        const length = parseInt(lengthStr);
+        const key = `${specification}_${length}`;
+        if (!moduleUsageStats[key]) {
+          moduleUsageStats[key] = {
+            specification: specification,
+            crossSection: crossSectionValue,
+            length: length,
+            count: 0,
+            totalLength: 0
+          };
+        }
+        moduleUsageStats[key].count += count;
+        moduleUsageStats[key].totalLength += length * count;
+      });
+    });
+  }
+
+  // 按规格和长度排序
+  const sortedModuleStats = Object.values(moduleUsageStats).sort((a, b) => {
+    if (a.specification !== b.specification) {
+      return a.specification.localeCompare(b.specification);
+    }
+    return a.length - b.length;
+  });
+
+  // 计算规格小计
+  const specificationTotals = {};
+  sortedModuleStats.forEach(stat => {
+    if (!specificationTotals[stat.specification]) {
+      specificationTotals[stat.specification] = { count: 0, totalLength: 0 };
+    }
+    specificationTotals[stat.specification].count += stat.count;
+    specificationTotals[stat.specification].totalLength += stat.totalLength;
+  });
+
+  // 计算总计
+  const grandTotal = sortedModuleStats.reduce((acc, stat) => ({
+    count: acc.count + stat.count,
+    totalLength: acc.totalLength + stat.totalLength
+  }), { count: 0, totalLength: 0 });
+
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>设计钢材清单</title>
+  <title>钢材优化结果报告</title>
   <style>
-    body {
-      font-family: 'Microsoft YaHei', '微软雅黑', sans-serif;
-      line-height: 1.6;
-      color: #333;
-      background: #fff;
-      padding: 20px;
-    }
-    
-    .header {
-      text-align: center;
-      border-bottom: 3px solid #1890ff;
-      padding-bottom: 20px;
-      margin-bottom: 30px;
-    }
-    
-    .header h1 {
-      font-size: 28px;
-      color: #1890ff;
-      margin-bottom: 10px;
-    }
-    
-    .header .meta {
-      color: #666;
-      font-size: 14px;
-    }
-    
-    .section {
-      margin-bottom: 40px;
-    }
-    
-    .section h2 {
-      font-size: 20px;
-      color: #1890ff;
-      border-bottom: 2px solid #1890ff;
-      padding-bottom: 10px;
-      margin-bottom: 20px;
-    }
-    
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 20px;
-    }
-    
-    th, td {
-      border: 1px solid #d9d9d9;
-      padding: 12px;
-      text-align: left;
-    }
-    
-    th {
-      background: #fafafa;
-      font-weight: bold;
-      color: #333;
-    }
-    
-    .summary {
-      background-color: #f9f9f9;
-      padding: 15px;
-      border-radius: 5px;
-      margin-bottom: 20px;
-    }
-    
+    body { font-family: 'SimSun', Arial, sans-serif; margin: 20px; color: #333; line-height: 1.6; }
+    .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
+    .header h1 { color: #1890ff; margin: 0; font-size: 28px; }
+    .section { margin-bottom: 30px; page-break-inside: avoid; }
+    .section h2 { color: #1890ff; border-bottom: 1px solid #1890ff; padding-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 14px; }
+    th { background-color: #f5f5f5; font-weight: bold; }
+    .summary { background-color: #f9f9f9; padding: 15px; border-radius: 5px; }
+    .tag { background-color: #1890ff; color: white; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+    .subtotal-row { background-color: #f5f5f5; font-weight: bold; }
+    .total-row { background-color: #e6f7ff; font-weight: bold; color: #1890ff; }
     @media print {
-      body {
-        padding: 10px;
-      }
+      body { margin: 10px; }
+      .section { page-break-inside: avoid; }
     }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>设计钢材清单</h1>
-    <div class="meta">
-      生成时间: ${reportTime}
-    </div>
+    <h1>钢材优化结果报告</h1>
+    <div>生成时间: ${new Date().toLocaleString('zh-CN')}</div>
   </div>
 
   <div class="section">
     <h2>优化结果汇总</h2>
     <div class="summary">
       <table>
-        <tr><td><strong>总损耗率</strong></td><td>${results.totalLossRate.toFixed(2)}%</td></tr>
-        <tr><td><strong>模数钢材使用量</strong></td><td>${results.totalModuleUsed} 根</td></tr>
-        <tr><td><strong>总废料长度</strong></td><td>${results.totalWaste.toLocaleString()} mm</td></tr>
+        <tr><td><strong>总损耗率</strong></td><td>${(safeResults.totalLossRate || 0).toFixed(2)}%</td></tr>
+        <tr><td><strong>模数钢材使用量</strong></td><td>${safeResults.totalModuleUsed || 0} 根</td></tr>
+        <tr><td><strong>总废料长度</strong></td><td>${(safeResults.totalWaste || 0).toLocaleString()} mm</td></tr>
       </table>
     </div>
+  </div>
+
+  <div class="section">
+    <h2>模数钢材统计</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>钢材规格</th>
+          <th>模数钢材长度 (mm)</th>
+          <th>采购数量 (钢材条数)</th>
+          <th>总长度 (mm)</th>
+          <th>截面面积 (mm²)</th>
+          <th>采购建议</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${sortedModuleStats.map(stat => `
+          <tr>
+            <td><span class="tag">${stat.specification}</span></td>
+            <td>${stat.length.toLocaleString()}</td>
+            <td><strong>${stat.count} 根</strong></td>
+            <td><strong>${stat.totalLength.toLocaleString()}</strong></td>
+            <td>${stat.crossSection.toLocaleString()}</td>
+            <td>需采购 ${stat.count} 根钢材，每根长度 ${stat.length.toLocaleString()}mm</td>
+          </tr>
+        `).join('')}
+        ${Object.keys(specificationTotals).length > 1 ? 
+          Object.entries(specificationTotals).map(([specification, totals]) => `
+            <tr class="subtotal-row">
+              <td>${specification} 小计</td>
+              <td>-</td>
+              <td><strong>${totals.count} 根</strong></td>
+              <td><strong>${totals.totalLength.toLocaleString()}</strong></td>
+              <td>-</td>
+              <td>-</td>
+            </tr>
+          `).join('') : ''
+        }
+        <tr class="total-row">
+          <td>总计</td>
+          <td>-</td>
+          <td><strong>${grandTotal.count} 根</strong></td>
+          <td><strong>${grandTotal.totalLength.toLocaleString()}</strong></td>
+          <td>-</td>
+          <td>-</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 
   <div class="section">
@@ -1636,9 +1758,19 @@ function generatePDFHTML(results, designSteels) {
     </table>
   </div>
 
+  <div class="section">
+    <h2>报告说明</h2>
+    <ul>
+      <li><strong>优化结果汇总</strong>：显示整体优化效果和计算统计</li>
+      <li><strong>模数钢材统计</strong>：按规格分组的模数钢材采购清单，显示需要采购的钢材条数</li>
+      <li><strong>设计钢材清单</strong>：按规格分组的设计钢材需求明细</li>
+      <li>损耗率 = 废料长度 / 总材料长度 × 100%</li>
+      <li>采购数量已考虑切割优化，每根钢材可以切割出多个设计件</li>
+      <li>建议将此报告作为生产和采购的指导文档</li>
+    </ul>
+  </div>
 </body>
-</html>
-  `;
+</html>`;
 }
 
 // 文件下载

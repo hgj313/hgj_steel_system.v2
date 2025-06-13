@@ -1,5 +1,19 @@
 const XLSX = require('xlsx');
 
+// 建立截面面积到规格的映射
+function buildCrossSectionToSpecMapping(designSteels) {
+  const mapping = {};
+  if (designSteels && Array.isArray(designSteels)) {
+    designSteels.forEach(steel => {
+      if (steel.crossSection && steel.specification) {
+        const crossSectionValue = Math.round(parseFloat(steel.crossSection));
+        mapping[crossSectionValue] = steel.specification;
+      }
+    });
+  }
+  return mapping;
+}
+
 exports.handler = async (event, context) => {
   if (event.httpMethod !== 'POST') {
     return {
@@ -9,7 +23,7 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    const { results, moduleSteels } = JSON.parse(event.body);
+    const { results, moduleSteels, designSteels } = JSON.parse(event.body);
 
     if (!results || !results.solutions) {
       return {
@@ -18,50 +32,81 @@ exports.handler = async (event, context) => {
       };
     }
 
+    // 建立规格映射
+    const crossSectionToSpecMapping = buildCrossSectionToSpecMapping(designSteels);
+
     // 创建工作簿
     const workbook = XLSX.utils.book_new();
 
-    // 创建模数钢材采购清单工作表 - 按实际使用的模数钢材统计
-    const moduleStats = {};
+    // 创建模数钢材采购清单工作表 - 使用正确的规格信息
+    const moduleUsageStats = {};
     
     Object.entries(results.solutions).forEach(([crossSection, solution]) => {
-      if (solution.cuttingPlans && solution.cuttingPlans.length > 0) {
-        solution.cuttingPlans.forEach(plan => {
-          if (plan.sourceType === 'module') {
-            const moduleType = plan.moduleType || `模数钢材`;
-            const length = plan.moduleLength || plan.sourceLength;
-            const key = `${moduleType}_${length}_${crossSection}`;
+      const crossSectionValue = Math.round(parseFloat(crossSection));
+      const specification = crossSectionToSpecMapping[crossSectionValue] || `未知规格(${crossSectionValue}mm²)`;
+      
+      // Count unique module steel bars by sourceId (not detail records)
+      const uniqueModuleBars = {};
+      
+      if (solution.details && Array.isArray(solution.details)) {
+        solution.details.forEach(detail => {
+          // Only count raw module steel bars, ignore remainders/remnants
+          if (detail.sourceType === 'module' && detail.sourceId) {
+            const length = detail.moduleLength || detail.sourceLength;
+            const sourceId = detail.sourceId;
             
-            if (!moduleStats[key]) {
-              moduleStats[key] = {
-                moduleType: moduleType,
-                crossSection: parseInt(crossSection),
+            // Each unique sourceId represents one physical steel bar
+            if (!uniqueModuleBars[sourceId]) {
+              uniqueModuleBars[sourceId] = {
                 length: length,
-                count: 0,
-                totalLength: 0
+                sourceId: sourceId
               };
             }
-            moduleStats[key].count += 1; // 每个cutting plan代表使用了1根模数钢材
-            moduleStats[key].totalLength += length;
           }
         });
       }
+      
+      // Group by length and count unique bars
+      const moduleBarCounts = {};
+      Object.values(uniqueModuleBars).forEach(bar => {
+        if (!moduleBarCounts[bar.length]) {
+          moduleBarCounts[bar.length] = 0;
+        }
+        moduleBarCounts[bar.length] += 1;
+      });
+      
+      // Add to stats
+      Object.entries(moduleBarCounts).forEach(([lengthStr, count]) => {
+        const length = parseInt(lengthStr);
+        const key = `${specification}_${length}`;
+        if (!moduleUsageStats[key]) {
+          moduleUsageStats[key] = {
+            specification: specification,
+            crossSection: crossSectionValue,
+            length: length,
+            count: 0,
+            totalLength: 0
+          };
+        }
+        moduleUsageStats[key].count += count;
+        moduleUsageStats[key].totalLength += length * count;
+      });
     });
 
     const purchaseData = [];
     purchaseData.push(['钢材规格', '模数钢材长度 (mm)', '采购数量 (钢材条数)', '总长度 (mm)', '截面面积 (mm²)', '采购建议']);
 
-    // 按截面面积和长度排序
-    const sortedStats = Object.values(moduleStats).sort((a, b) => {
-      if (a.crossSection !== b.crossSection) {
-        return a.crossSection - b.crossSection;
+    // 按规格和长度排序
+    const sortedStats = Object.values(moduleUsageStats).sort((a, b) => {
+      if (a.specification !== b.specification) {
+        return a.specification.localeCompare(b.specification);
       }
       return a.length - b.length;
     });
 
     sortedStats.forEach(stat => {
       purchaseData.push([
-        stat.moduleType,
+        stat.specification,
         stat.length,
         `${stat.count} 根`,
         stat.totalLength,
@@ -71,25 +116,24 @@ exports.handler = async (event, context) => {
     });
 
     // 按规格分组添加小计
-    const specGroups = {};
+    const specificationTotals = {};
     sortedStats.forEach(stat => {
-      const specKey = stat.moduleType.replace(/\d+$/, ''); // 去掉末尾数字得到规格组
-      if (!specGroups[specKey]) {
-        specGroups[specKey] = { count: 0, totalLength: 0, crossSection: stat.crossSection };
+      if (!specificationTotals[stat.specification]) {
+        specificationTotals[stat.specification] = { count: 0, totalLength: 0 };
       }
-      specGroups[specKey].count += stat.count;
-      specGroups[specKey].totalLength += stat.totalLength;
+      specificationTotals[stat.specification].count += stat.count;
+      specificationTotals[stat.specification].totalLength += stat.totalLength;
     });
 
     // 添加规格小计
-    Object.entries(specGroups).forEach(([spec, totals]) => {
-      if (Object.keys(specGroups).length > 1) { // 只有多个规格时才显示小计
+    Object.entries(specificationTotals).forEach(([specification, totals]) => {
+      if (Object.keys(specificationTotals).length > 1) { // 只有多个规格时才显示小计
         purchaseData.push([
-          `${spec} 小计`,
+          `${specification} 小计`,
           '-',
           `${totals.count} 根`,
           totals.totalLength,
-          totals.crossSection,
+          '-',
           ''
         ]);
       }
