@@ -64,14 +64,20 @@ const App: React.FC = () => {
     const dismissedIds = dismissed ? JSON.parse(dismissed) : [];
     setDismissedAnnouncements(dismissedIds);
     
+    console.log('Dismissed announcements:', dismissedIds);
+    console.log('Current announcements:', SYSTEM_ANNOUNCEMENTS.map(a => a.id));
+    
     // 检查是否有未查看的公告
     const hasNewAnnouncements = SYSTEM_ANNOUNCEMENTS.some(
       announcement => !dismissedIds.includes(announcement.id)
     );
     
+    console.log('Has new announcements:', hasNewAnnouncements);
+    
     if (hasNewAnnouncements) {
       // 延迟显示公告，让页面先加载完成
       setTimeout(() => {
+        console.log('Auto-opening announcement modal');
         setAnnouncementVisible(true);
       }, 1000);
     }
@@ -90,6 +96,14 @@ const App: React.FC = () => {
   // 显示公告
   const handleShowAnnouncement = () => {
     setAnnouncementVisible(true);
+  };
+
+  // 重置公告状态（用于测试）
+  const handleResetAnnouncements = () => {
+    localStorage.removeItem('dismissed-announcements');
+    setDismissedAnnouncements([]);
+    setAnnouncementVisible(true);
+    console.log('Announcements reset - should auto-open on next page load');
   };
 
   const handleOptimizationComplete = (result: OptimizationResult) => {
@@ -212,6 +226,22 @@ const App: React.FC = () => {
                   {unviewedAnnouncements.length}
                 </span>
               )}
+            </Button>
+            {/* Temporary test button - remove after testing */}
+            <Button 
+              type="text"
+              onClick={handleResetAnnouncements}
+              style={{
+                borderRadius: '20px',
+                height: '40px',
+                padding: '0 16px',
+                background: 'rgba(255, 77, 79, 0.1)',
+                border: '1px solid rgba(255, 77, 79, 0.3)',
+                color: '#ff4d4f',
+                fontSize: '12px'
+              }}
+            >
+              重置公告
             </Button>
           </Space>
         </div>
