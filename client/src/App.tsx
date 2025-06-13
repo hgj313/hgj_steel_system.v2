@@ -107,15 +107,17 @@ const App: React.FC = () => {
           )}
         </div>
         
-        {/* 调试工具按钮 */}
-        <Button
-          type="primary"
-          icon={<BugOutlined />}
-          onClick={() => setDebugVisible(true)}
-          style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 1000 }}
-        >
-          调试工具
-        </Button>
+        {/* 调试工具按钮 - 已隐藏 */}
+        {false && (
+          <Button
+            type="primary"
+            icon={<BugOutlined />}
+            onClick={() => setDebugVisible(true)}
+            style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 1000 }}
+          >
+            调试工具
+          </Button>
+        )}
 
         {/* 调试说明弹窗 */}
         <Modal

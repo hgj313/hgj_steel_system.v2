@@ -73,10 +73,11 @@ exports.handler = async (event, context) => {
 
 function generatePDFHTML(results, designSteels, moduleSteels) {
   const safeResults = results || {};
+  const safeDesignSteels = designSteels || [];
   
   // 按规格分组设计钢材
   const groupedBySpec = {};
-  designSteels.forEach(steel => {
+  safeDesignSteels.forEach(steel => {
     const spec = steel.specification || `截面${steel.crossSection}mm²`;
     if (!groupedBySpec[spec]) {
       groupedBySpec[spec] = [];
@@ -163,53 +164,12 @@ function generatePDFHTML(results, designSteels, moduleSteels) {
   </div>
 
   <div class="section">
-    <h2>切割计划详情</h2>
-    ${cuttingDetails.length > 0 ? `
-    <table>
-      <thead>
-        <tr>
-          <th>截面面积</th>
-          <th>计划编号</th>
-          <th>模数类型</th>
-          <th>原材料长度</th>
-          <th>切割长度</th>
-          <th>废料长度</th>
-          <th>利用率</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${cuttingDetails.map(detail => `
-          <tr>
-            <td>${detail.crossSection} mm²</td>
-            <td>P${detail.planIndex}</td>
-            <td>${detail.moduleType}</td>
-            <td>${detail.sourceLength.toLocaleString()} mm</td>
-            <td>
-              ${detail.cuts.length > 0 ? 
-                detail.cuts.map(cut => `${cut.length}mm×${cut.quantity}`).join('<br/>') 
-                : '无切割数据'}
-            </td>
-            <td>${detail.waste.toLocaleString()} mm</td>
-            <td class="${detail.utilizationRate >= 90 ? 'satisfied' : detail.utilizationRate >= 80 ? 'status-warning' : 'unsatisfied'}">
-              ${detail.utilizationRate}%
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-    ` : '<p style="color: #999; font-style: italic;">暂无切割计划数据</p>'}
-  </div>
-
-  <div class="section">
     <h2>报告说明</h2>
     <ul>
       <li><strong>优化结果汇总</strong>：显示整体优化效果和计算统计</li>
-      <li><strong>需求验证表</strong>：验证所有设计钢材需求是否得到满足</li>
-      <li><strong>模数钢材采购清单</strong>：按截面面积和长度分类的采购数量明细</li>
-      <li><strong>切割计划详情</strong>：每根模数钢材的具体切割方案和利用率</li>
+      <li><strong>设计钢材清单</strong>：按规格分组的设计钢材需求明细</li>
       <li>损耗率 = 废料长度 / 总材料长度 × 100%</li>
-      <li>利用率颜色标识：<span class="satisfied">绿色≥90%</span>，<span class="status-warning">黄色80-89%</span>，<span class="unsatisfied">红色<80%</span></li>
-      <li>建议将此报告作为采购和生产的指导文档</li>
+      <li>建议将此报告作为生产的指导文档</li>
     </ul>
   </div>
 </body>

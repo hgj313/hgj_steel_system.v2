@@ -1338,25 +1338,30 @@ app.post('/api/export/excel', (req, res) => {
     // 创建工作簿
     const wb = XLSX.utils.book_new();
     
-    // 创建模数钢材采购清单工作表
+    // 创建模数钢材采购清单工作表 - 按实际使用的模数钢材统计
     const moduleStats = {};
     Object.entries(results.solutions).forEach(([crossSection, solution]) => {
-      solution.details.forEach(detail => {
-        if (detail.sourceType === 'module' && detail.moduleType) {
-          const key = `${detail.moduleType}_${crossSection}`;
-          if (!moduleStats[key]) {
-            moduleStats[key] = {
-              moduleType: detail.moduleType,
-              crossSection: parseInt(crossSection),
-              length: detail.moduleLength || detail.sourceLength,
-              count: 0,
-              totalLength: 0
-            };
+      if (solution.cuttingPlans && solution.cuttingPlans.length > 0) {
+        solution.cuttingPlans.forEach(plan => {
+          if (plan.sourceType === 'module') {
+            const moduleType = plan.moduleType || `模数钢材`;
+            const length = plan.moduleLength || plan.sourceLength;
+            const key = `${moduleType}_${length}_${crossSection}`;
+            
+            if (!moduleStats[key]) {
+              moduleStats[key] = {
+                moduleType: moduleType,
+                crossSection: parseInt(crossSection),
+                length: length,
+                count: 0,
+                totalLength: 0
+              };
+            }
+            moduleStats[key].count += 1; // 每个cutting plan代表使用了1根模数钢材
+            moduleStats[key].totalLength += length;
           }
-          moduleStats[key].count += 1;
-          moduleStats[key].totalLength += detail.moduleLength || detail.sourceLength;
-        }
-      });
+        });
+      }
     });
 
     const purchaseData = [['钢材规格', '模数钢材长度 (mm)', '采购数量 (钢材条数)', '总长度 (mm)', '截面面积 (mm²)', '采购建议']];
@@ -1487,7 +1492,8 @@ function generatePDFHTML(results, designSteels) {
   
   // 按规格分组设计钢材
   const groupedBySpec = {};
-  designSteels.forEach(steel => {
+  const safeDesignSteels = designSteels || [];
+  safeDesignSteels.forEach(steel => {
     const spec = steel.specification || `截面${steel.crossSection}mm²`;
     if (!groupedBySpec[spec]) {
       groupedBySpec[spec] = [];

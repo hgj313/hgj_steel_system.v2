@@ -21,25 +21,28 @@ exports.handler = async (event, context) => {
     // 创建工作簿
     const workbook = XLSX.utils.book_new();
 
-    // 创建模数钢材采购清单工作表
+    // 创建模数钢材采购清单工作表 - 按实际使用的模数钢材统计
     const moduleStats = {};
     
     Object.entries(results.solutions).forEach(([crossSection, solution]) => {
-      if (solution.details && solution.details.length > 0) {
-        solution.details.forEach(detail => {
-          if (detail.sourceType === 'module' && detail.moduleType) {
-            const key = `${detail.moduleType}_${detail.moduleLength || detail.sourceLength}`;
+      if (solution.cuttingPlans && solution.cuttingPlans.length > 0) {
+        solution.cuttingPlans.forEach(plan => {
+          if (plan.sourceType === 'module') {
+            const moduleType = plan.moduleType || `模数钢材`;
+            const length = plan.moduleLength || plan.sourceLength;
+            const key = `${moduleType}_${length}_${crossSection}`;
+            
             if (!moduleStats[key]) {
               moduleStats[key] = {
-                moduleType: detail.moduleType,
+                moduleType: moduleType,
                 crossSection: parseInt(crossSection),
-                length: detail.moduleLength || detail.sourceLength,
+                length: length,
                 count: 0,
                 totalLength: 0
               };
             }
-            moduleStats[key].count += detail.quantity || 1;
-            moduleStats[key].totalLength += (detail.moduleLength || detail.sourceLength) * (detail.quantity || 1);
+            moduleStats[key].count += 1; // 每个cutting plan代表使用了1根模数钢材
+            moduleStats[key].totalLength += length;
           }
         });
       }
