@@ -28,19 +28,26 @@ const { Header, Content } = Layout;
 // 系统公告 - 由管理员在代码中定义
 const SYSTEM_ANNOUNCEMENTS = [
   {
-    id: 'welcome-2024',
+    id: 'welcome-2025',
     title: '欢迎使用钢材采购损耗率估算系统',
-    content: '本系统已完成重大更新，新增Excel规格导出、PDF报告生成等功能。如有问题请联系技术支持。',
+    content: '开发部门：吉盛技术部\
+    参与人员：黄传凯、黄国俊、杨玉麟\
+    版本：V2.0.0',
     type: 'info' as const,
-    createdAt: '2024-01-15',
+    createdAt: '2025-06-13',
     priority: 1
   },
   {
     id: 'update-notice',
     title: '系统功能更新通知',
-    content: '✨ 新功能：Excel导出现在显示准确的钢材规格名称\n📊 优化：移除了导出文件中的小计行，使报告更简洁\n📋 增强：PDF报告新增模数钢材统计详情',
+    content: '本系统已完成重大更新：\
+    1、新增规格列、excel、PDF报告内容调整。\
+    2、核心算法优化，获得更接近全局最优解的优化结果。\
+    3、 UI调整，更便于观察设计钢材和模数钢材的实际情况。\
+     \
+    如遇到使用问题请将问题发送至邮箱：2486575431@qq.com。',
     type: 'success' as const,
-    createdAt: '2024-01-14',
+    createdAt: '2025-06-113',
     priority: 2
   }
 ];
