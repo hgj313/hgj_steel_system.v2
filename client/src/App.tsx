@@ -57,31 +57,83 @@ const App: React.FC = () => {
   // 公告系统状态
   const [announcementVisible, setAnnouncementVisible] = useState(false);
   const [dismissedAnnouncements, setDismissedAnnouncements] = useState<string[]>([]);
+  const [autoOpenAttempted, setAutoOpenAttempted] = useState(false);
 
   // 检查是否有新公告需要显示
   useEffect(() => {
-    const dismissed = localStorage.getItem('dismissed-announcements');
-    const dismissedIds = dismissed ? JSON.parse(dismissed) : [];
-    setDismissedAnnouncements(dismissedIds);
-    
-    console.log('Dismissed announcements:', dismissedIds);
-    console.log('Current announcements:', SYSTEM_ANNOUNCEMENTS.map(a => a.id));
-    
-    // 检查是否有未查看的公告
-    const hasNewAnnouncements = SYSTEM_ANNOUNCEMENTS.some(
-      announcement => !dismissedIds.includes(announcement.id)
-    );
-    
-    console.log('Has new announcements:', hasNewAnnouncements);
-    
-    if (hasNewAnnouncements) {
-      // 延迟显示公告，让页面先加载完成
-      setTimeout(() => {
-        console.log('Auto-opening announcement modal');
-        setAnnouncementVisible(true);
-      }, 1000);
+    try {
+      const dismissed = localStorage.getItem('dismissed-announcements');
+      let dismissedIds = [];
+      
+      if (dismissed) {
+        try {
+          dismissedIds = JSON.parse(dismissed);
+          // 确保 dismissedIds 是数组
+          if (!Array.isArray(dismissedIds)) {
+            dismissedIds = [];
+          }
+        } catch (parseError) {
+          console.warn('Failed to parse dismissed announcements, resetting:', parseError);
+          dismissedIds = [];
+          localStorage.removeItem('dismissed-announcements');
+        }
+      }
+      
+      setDismissedAnnouncements(dismissedIds);
+      
+      // 检查是否有未查看的公告
+      const hasNewAnnouncements = SYSTEM_ANNOUNCEMENTS.some(
+        announcement => !dismissedIds.includes(announcement.id)
+      );
+      
+      if (hasNewAnnouncements && !autoOpenAttempted) {
+        setAutoOpenAttempted(true);
+        // 延迟显示公告，让页面先加载完成
+        const timer = setTimeout(() => {
+          setAnnouncementVisible(true);
+        }, 1500); // 增加延迟时间确保页面完全加载
+        
+        // 清理定时器
+        return () => clearTimeout(timer);
+      }
+    } catch (error) {
+      console.error('Error in announcement auto-open logic:', error);
+      // 如果出错，直接显示公告
+      setAutoOpenAttempted(true);
+      setAnnouncementVisible(true);
     }
   }, []);
+
+  // 备用自动打开机制 - 确保公告在页面加载后显示
+  useEffect(() => {
+    if (!autoOpenAttempted) {
+      const fallbackTimer = setTimeout(() => {
+        try {
+          const dismissed = localStorage.getItem('dismissed-announcements');
+          let dismissedIds = [];
+          if (dismissed) {
+            dismissedIds = JSON.parse(dismissed);
+            if (!Array.isArray(dismissedIds)) dismissedIds = [];
+          }
+          
+          const hasNewAnnouncements = SYSTEM_ANNOUNCEMENTS.some(
+            announcement => !dismissedIds.includes(announcement.id)
+          );
+          
+          if (hasNewAnnouncements) {
+            setAutoOpenAttempted(true);
+            setAnnouncementVisible(true);
+          }
+        } catch (error) {
+          // 如果解析失败，直接显示公告
+          setAutoOpenAttempted(true);
+          setAnnouncementVisible(true);
+        }
+      }, 2000); // 2秒后的备用检查
+      
+      return () => clearTimeout(fallbackTimer);
+    }
+  }, [autoOpenAttempted]);
 
   // 关闭公告并记住用户选择
   const handleCloseAnnouncement = () => {
@@ -98,13 +150,7 @@ const App: React.FC = () => {
     setAnnouncementVisible(true);
   };
 
-  // 重置公告状态（用于测试）
-  const handleResetAnnouncements = () => {
-    localStorage.removeItem('dismissed-announcements');
-    setDismissedAnnouncements([]);
-    setAnnouncementVisible(true);
-    console.log('Announcements reset - should auto-open on next page load');
-  };
+
 
   const handleOptimizationComplete = (result: OptimizationResult) => {
     setOptimizationResult(result);
@@ -227,22 +273,7 @@ const App: React.FC = () => {
                 </span>
               )}
             </Button>
-            {/* Temporary test button - remove after testing */}
-            <Button 
-              type="text"
-              onClick={handleResetAnnouncements}
-              style={{
-                borderRadius: '20px',
-                height: '40px',
-                padding: '0 16px',
-                background: 'rgba(255, 77, 79, 0.1)',
-                border: '1px solid rgba(255, 77, 79, 0.3)',
-                color: '#ff4d4f',
-                fontSize: '12px'
-              }}
-            >
-              重置公告
-            </Button>
+
           </Space>
         </div>
       </Header>
