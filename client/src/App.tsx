@@ -63,13 +63,15 @@ const App: React.FC = () => {
   useEffect(() => {
     try {
       const dismissed = localStorage.getItem('dismissed-announcements');
-      let dismissedIds = [];
+      let dismissedIds: string[] = [];
       
       if (dismissed) {
         try {
-          dismissedIds = JSON.parse(dismissed);
+          const parsed = JSON.parse(dismissed);
           // 确保 dismissedIds 是数组
-          if (!Array.isArray(dismissedIds)) {
+          if (Array.isArray(parsed)) {
+            dismissedIds = parsed;
+          } else {
             dismissedIds = [];
           }
         } catch (parseError) {
@@ -110,10 +112,14 @@ const App: React.FC = () => {
       const fallbackTimer = setTimeout(() => {
         try {
           const dismissed = localStorage.getItem('dismissed-announcements');
-          let dismissedIds = [];
+          let dismissedIds: string[] = [];
           if (dismissed) {
-            dismissedIds = JSON.parse(dismissed);
-            if (!Array.isArray(dismissedIds)) dismissedIds = [];
+            const parsed = JSON.parse(dismissed);
+            if (Array.isArray(parsed)) {
+              dismissedIds = parsed;
+            } else {
+              dismissedIds = [];
+            }
           }
           
           const hasNewAnnouncements = SYSTEM_ANNOUNCEMENTS.some(
