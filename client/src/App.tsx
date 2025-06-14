@@ -7,7 +7,8 @@ import {
   BulbOutlined, 
   RobotOutlined,
   CloseOutlined,
-  SettingOutlined
+  SettingOutlined,
+  DownloadOutlined
 } from '@ant-design/icons';
 import DesignSteelManager from './components/DesignSteelManager';
 import ModuleSteelManager from './components/ModuleSteelManager';
@@ -90,6 +91,22 @@ const App: React.FC = () => {
   // 显示公告
   const handleShowAnnouncement = () => {
     setAnnouncementVisible(true);
+  };
+
+  // 下载模板文件
+  const handleDownloadTemplate = () => {
+    try {
+      const link = document.createElement('a');
+      link.href = '/西耳墙.xls';
+      link.download = '西耳墙.xls';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      message.success('模板下载开始！');
+    } catch (error) {
+      message.error('模板下载失败，请稍后重试');
+      console.error('Download error:', error);
+    }
   };
 
   const handleOptimizationComplete = (result: OptimizationResult) => {
@@ -527,6 +544,36 @@ const App: React.FC = () => {
               showIcon
             />
           ))}
+        </div>
+        
+        {/* 模板下载区域 */}
+        <div style={{
+          padding: '20px 24px',
+          borderTop: '1px solid rgba(0, 0, 0, 0.06)',
+          background: 'linear-gradient(135deg, #f8f9ff 0%, #f0f2ff 100%)'
+        }}>
+          <div style={{ marginBottom: '16px' }}>
+            <Title level={5} style={{ margin: 0, marginBottom: '8px', color: '#1890ff' }}>
+              📄 模板下载
+            </Title>
+            <Text style={{ color: '#666', fontSize: '14px' }}>
+              下载模板文件，用于数据录入和计算. |!请保持模板字体不变Arial，和每个列都有正确的数据！|
+            </Text>
+          </div>
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={handleDownloadTemplate}
+            style={{
+              borderRadius: '8px',
+              height: '36px',
+              background: '#52c41a',
+              borderColor: '#52c41a',
+              boxShadow: '0 2px 8px rgba(82, 196, 26, 0.3)'
+            }}
+          >
+            下载 西耳墙.xls 模板
+          </Button>
         </div>
         
         <div style={{
